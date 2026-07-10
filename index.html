@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101828">
+  <title>リアルタイム情報表示</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;min-height:100%;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{background:#f2f4f7;color:#101828}
+    button,input,textarea{font:inherit}
+    button{cursor:pointer}
+    .hidden{display:none!important}
+    #home,#sender,#displaySetup{min-height:100svh;padding:20px;display:grid;place-items:center}
+    .card{width:min(620px,100%);background:#fff;border-radius:24px;padding:24px;box-shadow:0 14px 40px rgba(16,24,40,.12)}
+    h1{margin:0 0 8px}
+    .lead{margin:0 0 22px;color:#667085;line-height:1.7}
+    .mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .mode-btn,.main-btn,.sub-btn{border:0;border-radius:16px;padding:16px;font-weight:800}
+    .mode-btn,.main-btn{background:#7f56d9;color:#fff}
+    .sub-btn{background:#eaecf0;color:#344054}
+    label{display:block;font-weight:700;margin:18px 0 7px}
+    input,textarea{width:100%;border:1px solid #d0d5dd;border-radius:14px;padding:14px 15px;outline:none;background:#fff}
+    input:focus,textarea:focus{border-color:#7f56d9;box-shadow:0 0 0 4px rgba(127,86,217,.12)}
+    textarea{min-height:150px;resize:vertical;line-height:1.6}
+    .color-row{display:grid;grid-template-columns:74px 1fr;gap:12px;align-items:center}
+    input[type=color]{height:54px;padding:5px}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
+    #status{min-height:24px;margin-top:14px;text-align:center;font-weight:700}
+    .ok{color:#067647}.error{color:#b42318}
+    .preview{margin-top:22px;border-radius:18px;padding:22px;color:#fff;overflow-wrap:anywhere}
+    .preview h2{margin:0 0 10px;font-size:26px}
+    .preview p{margin:0;white-space:pre-wrap;line-height:1.7}
+    #screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;text-align:center;color:#fff;padding:max(28px,env(safe-area-inset-top)) max(28px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(28px,env(safe-area-inset-left));background:#111827;transition:background-color .35s ease}
+    #displayContent{width:min(1100px,100%);overflow-wrap:anywhere}
+    #mainTitle{margin:0 0 24px;font-size:clamp(38px,8vw,108px);line-height:1.1}
+    #mainDetail{margin:0;font-size:clamp(20px,3.2vw,48px);line-height:1.65;white-space:pre-wrap}
+    #roomBadge{position:fixed;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));padding:7px 11px;border-radius:999px;background:rgba(0,0,0,.22);font-size:12px;opacity:.72}
+    #exitDisplay{position:fixed;right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));border:0;border-radius:999px;padding:10px 14px;background:rgba(0,0,0,.25);color:#fff;opacity:.6}
+    @media(max-width:520px){.mode-grid,.actions{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<section id="home">
+  <div class="card">
+    <h1>リアルタイム情報表示</h1>
+    <p class="lead">この1つのHTMLだけで、送信側と表示側の両方を使えます。</p>
+    <div class="mode-grid">
+      <button class="mode-btn" id="openSender">送信側を開く</button>
+      <button class="mode-btn" id="openDisplaySetup">表示側を開く</button>
+    </div>
+  </div>
+</section>
+
+<section id="sender" class="hidden">
+  <div class="card">
+    <h1>表示内容を送信</h1>
+    <p class="lead">表示側と同じ部屋名を指定してください。</p>
+
+    <label for="sendRoom">部屋名</label>
+    <input id="sendRoom" maxlength="60" placeholder="例：room1">
+
+    <label for="color">背景色</label>
+    <div class="color-row">
+      <input id="color" type="color" value="#2563eb">
+      <input id="colorText" value="#2563eb" maxlength="7">
+    </div>
+
+    <label for="title">タイトル</label>
+    <input id="title" maxlength="100" placeholder="例：お知らせ">
+
+    <label for="detail">詳細</label>
+    <textarea id="detail" maxlength="3000" placeholder="表示したい内容を入力"></textarea>
+
+    <div class="actions">
+      <button class="sub-btn" id="backFromSender">戻る</button>
+      <button class="main-btn" id="sendButton">送信</button>
+    </div>
+    <div id="status"></div>
+
+    <section class="preview" id="preview">
+      <h2 id="previewTitle">お知らせ</h2>
+      <p id="previewDetail">ここに詳細が表示されます。</p>
+    </section>
+  </div>
+</section>
+
+<section id="displaySetup" class="hidden">
+  <div class="card">
+    <h1>表示する部屋を指定</h1>
+    <p class="lead">送信側と同じ部屋名を入力してください。</p>
+    <label for="displayRoom">部屋名</label>
+    <input id="displayRoom" maxlength="60" placeholder="例：room1">
+    <div class="actions">
+      <button class="sub-btn" id="backFromDisplay">戻る</button>
+      <button class="main-btn" id="startDisplay">表示開始</button>
+    </div>
+  </div>
+</section>
+
+<main id="screen">
+  <div id="roomBadge"></div>
+  <div id="displayContent">
+    <h1 id="mainTitle">現在、情報はありません</h1>
+    <p id="mainDetail"></p>
+  </div>
+  <button id="exitDisplay">終了</button>
+</main>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyC9ygh6HjX5mK1e5ZBnEWnLQCEjRMKIEWA",
+    authDomain: "sinzo-3f972.firebaseapp.com",
+    databaseURL: "https://sinzo-3f972-default-rtdb.firebaseio.com",
+    projectId: "sinzo-3f972",
+    storageBucket: "sinzo-3f972.firebasestorage.app",
+    messagingSenderId: "1058985227031",
+    appId: "1:1058985227031:web:6b152911e917903910bd52"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const $ = id => document.getElementById(id);
+  let unsubscribe = null;
+
+  function showSection(id){
+    ["home","sender","displaySetup"].forEach(x => $(x).classList.add("hidden"));
+    $(id).classList.remove("hidden");
+  }
+
+  $("openSender").onclick = () => showSection("sender");
+  $("openDisplaySetup").onclick = () => showSection("displaySetup");
+  $("backFromSender").onclick = () => showSection("home");
+  $("backFromDisplay").onclick = () => showSection("home");
+
+  const savedRoom = localStorage.getItem("displayRoom") || "";
+  $("sendRoom").value = savedRoom;
+  $("displayRoom").value = savedRoom;
+
+  function validHex(v){ return /^#[0-9a-fA-F]{6}$/.test(v); }
+
+  function updatePreview(){
+    const bg = validHex($("colorText").value) ? $("colorText").value : $("color").value;
+    $("preview").style.background = bg;
+    $("previewTitle").textContent = $("title").value.trim() || "お知らせ";
+    $("previewDetail").textContent = $("detail").value.trim() || "ここに詳細が表示されます。";
+  }
+
+  $("color").oninput = () => {
+    $("colorText").value = $("color").value;
+    updatePreview();
+  };
+  $("colorText").oninput = () => {
+    if(validHex($("colorText").value)) $("color").value = $("colorText").value;
+    updatePreview();
+  };
+  $("title").oninput = updatePreview;
+  $("detail").oninput = updatePreview;
+  updatePreview();
+
+  $("sendButton").onclick = async () => {
+    const room = $("sendRoom").value.trim();
+    const backgroundColor = $("colorText").value.trim();
+    const title = $("title").value.trim();
+    const detail = $("detail").value.trim();
+
+    $("status").className = "";
+
+    if(!room || !title || !detail){
+      $("status").textContent = "部屋名・タイトル・詳細を入力してね。";
+      $("status").className = "error";
+      return;
+    }
+    if(!validHex(backgroundColor)){
+      $("status").textContent = "背景色は #2563eb のように入力してね。";
+      $("status").className = "error";
+      return;
+    }
+
+    $("sendButton").disabled = true;
+    $("status").textContent = "送信中…";
+
+    try{
+      await setDoc(doc(db,"displayRooms",room),{
+        room, backgroundColor, title, detail, updatedAt: serverTimestamp()
+      });
+      localStorage.setItem("displayRoom",room);
+      $("displayRoom").value = room;
+      $("status").textContent = "送信しました！";
+      $("status").className = "ok";
+    }catch(e){
+      console.error(e);
+      $("status").textContent = "送信できませんでした。Firestoreの設定を確認してね。";
+      $("status").className = "error";
+    }finally{
+      $("sendButton").disabled = false;
+    }
+  };
+
+  function showEmpty(room){
+    $("screen").style.backgroundColor = "#111827";
+    $("mainTitle").textContent = "現在、情報はありません";
+    $("mainDetail").textContent = "";
+    $("roomBadge").textContent = "部屋：" + room;
+  }
+
+  function startWatching(room){
+    if(unsubscribe) unsubscribe();
+
+    localStorage.setItem("displayRoom",room);
+    $("home").classList.add("hidden");
+    $("sender").classList.add("hidden");
+    $("displaySetup").classList.add("hidden");
+    $("screen").style.display = "flex";
+    showEmpty(room);
+
+    unsubscribe = onSnapshot(doc(db,"displayRooms",room), snap => {
+      if(!snap.exists()){
+        showEmpty(room);
+        return;
+      }
+      const data = snap.data();
+      $("screen").style.backgroundColor = data.backgroundColor || "#111827";
+      $("mainTitle").textContent = data.title || "現在、情報はありません";
+      $("mainDetail").textContent = data.detail || "";
+      $("roomBadge").textContent = "部屋：" + room;
+    }, err => {
+      console.error(err);
+      $("screen").style.backgroundColor = "#7f1d1d";
+      $("mainTitle").textContent = "接続エラー";
+      $("mainDetail").textContent = "Firestoreの設定やルールを確認してください。";
+    });
+  }
+
+  $("startDisplay").onclick = () => {
+    const room = $("displayRoom").value.trim();
+    if(!room) return $("displayRoom").focus();
+    startWatching(room);
+  };
+
+  $("exitDisplay").onclick = () => {
+    if(unsubscribe) unsubscribe();
+    $("screen").style.display = "none";
+    showSection("home");
+  };
+
+  const params = new URLSearchParams(location.search);
+  const mode = params.get("mode");
+  const room = params.get("room");
+
+  if(mode === "send"){
+    showSection("sender");
+    if(room) $("sendRoom").value = room;
+  }else if(mode === "display" && room){
+    $("displayRoom").value = room;
+    startWatching(room);
+  }
+</script>
+</body>
+</html>

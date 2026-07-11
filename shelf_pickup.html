@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>商品受け取り案内</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+      background:
+        radial-gradient(circle at top left, #dff4ff 0, transparent 35%),
+        linear-gradient(135deg, #f4f7fb, #e8eef7);
+      color: #14213d;
+    }
+
+    .panel {
+      width: min(100%, 560px);
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 28px;
+      padding: 30px;
+      box-shadow: 0 24px 60px rgba(31, 52, 89, 0.18);
+      backdrop-filter: blur(14px);
+    }
+
+    .title {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 5vw, 34px);
+      text-align: center;
+    }
+
+    .subtitle {
+      margin: 0 0 28px;
+      text-align: center;
+      color: #68738a;
+      font-size: 14px;
+    }
+
+    .label {
+      margin-bottom: 8px;
+      color: #6b7487;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .shelf-box {
+      display: grid;
+      place-items: center;
+      min-height: 180px;
+      margin-bottom: 22px;
+      border-radius: 24px;
+      background: linear-gradient(145deg, #12213f, #203b6d);
+      color: white;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+    }
+
+    .shelf-number {
+      font-size: clamp(70px, 22vw, 130px);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      text-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .product-box {
+      padding: 20px;
+      margin-bottom: 22px;
+      border: 2px solid #e4e9f2;
+      border-radius: 20px;
+      background: #fbfcfe;
+    }
+
+    .product-name {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      font-size: clamp(20px, 5vw, 28px);
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .receive-button {
+      width: 100%;
+      border: none;
+      border-radius: 18px;
+      padding: 18px 20px;
+      font-size: 20px;
+      font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg, #1769ff, #0d47c7);
+      box-shadow: 0 12px 25px rgba(23, 105, 255, 0.28);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .receive-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 30px rgba(23, 105, 255, 0.34);
+    }
+
+    .receive-button:active {
+      transform: scale(0.98);
+    }
+
+    .message {
+      height: 24px;
+      margin-top: 14px;
+      text-align: center;
+      color: #199447;
+      font-weight: 700;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .message.show {
+      opacity: 1;
+    }
+
+    @media (max-width: 480px) {
+      .panel {
+        padding: 22px;
+        border-radius: 22px;
+      }
+
+      .shelf-box {
+        min-height: 150px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1 class="title">商品受け取り案内</h1>
+    <p class="subtitle">表示された棚から商品を受け取ってください</p>
+
+    <div class="label">棚番号</div>
+    <section class="shelf-box">
+      <div id="shelfNumber" class="shelf-number">A-1</div>
+    </section>
+
+    <div class="label">商品名</div>
+    <section class="product-box">
+      <div id="productName" class="product-name">ティッシュペーパー</div>
+    </section>
+
+    <button id="receiveButton" class="receive-button" type="button">
+      受け取り
+    </button>
+
+    <div id="message" class="message">受け取り完了！ 次の商品を表示しました</div>
+  </main>
+
+  <script>
+    const products = [
+      "ティッシュペーパー",
+      "トイレットペーパー",
+      "歯ブラシ",
+      "歯みがき粉",
+      "ハンドソープ",
+      "洗濯用洗剤",
+      "食器用スポンジ",
+      "キッチンペーパー",
+      "ゴミ袋",
+      "アルミホイル",
+      "ラップ",
+      "乾電池",
+      "ボールペン",
+      "ノート",
+      "マスク",
+      "タオル",
+      "シャンプー",
+      "ボディソープ",
+      "ウェットティッシュ",
+      "絆創膏",
+      "消臭スプレー",
+      "紙コップ",
+      "収納ボックス",
+      "掃除用ブラシ"
+    ];
+
+    const letters = ["A", "B", "C", "D"];
+
+    const shelfNumber = document.getElementById("shelfNumber");
+    const productName = document.getElementById("productName");
+    const receiveButton = document.getElementById("receiveButton");
+    const message = document.getElementById("message");
+
+    function randomItem(array) {
+      return array[Math.floor(Math.random() * array.length)];
+    }
+
+    function showNextItem() {
+      const letter = randomItem(letters);
+      const number = Math.floor(Math.random() * 12) + 1;
+      const product = randomItem(products);
+
+      shelfNumber.textContent = `${letter}-${number}`;
+      productName.textContent = product;
+    }
+
+    receiveButton.addEventListener("click", () => {
+      showNextItem();
+
+      message.classList.remove("show");
+      void message.offsetWidth;
+      message.classList.add("show");
+
+      setTimeout(() => {
+        message.classList.remove("show");
+      }, 1800);
+    });
+
+    showNextItem();
+  </script>
+</body>
+</html>

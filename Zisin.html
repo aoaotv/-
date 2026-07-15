@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05080d">
+<title>時計・天気・地震情報</title>
+<link rel="stylesheet"
+ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+ crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+ crossorigin=""></script>
+<style>
+:root{
+  --bg:#05080d;--panel:#101722;--text:#fff;--sub:#aeb8c7;
+  --line:rgba(255,255,255,.12);--red:#e90028
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{
+  background:radial-gradient(circle at 50% 25%,#172943 0,transparent 46%),var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif
+}
+#normal,#quake{position:fixed;inset:0}
+#normal{
+  display:grid;grid-template-rows:1fr 145px;
+  padding:max(14px,env(safe-area-inset-top)) 18px max(14px,env(safe-area-inset-bottom));
+  gap:14px
+}
+.clock-area{
+  min-height:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center
+}
+#clock{
+  font-size:clamp(120px,23vw,330px);
+  font-weight:800;line-height:.84;letter-spacing:-.075em;
+  font-variant-numeric:tabular-nums
+}
+#seconds{font-size:.22em;color:#72c5ff;letter-spacing:0;margin-left:.12em}
+#date{margin-top:18px;font-size:clamp(20px,2.2vw,34px);color:var(--sub);font-weight:600}
+.bottom{
+  display:grid;grid-template-columns:1fr;
+  gap:0;height:145px
+}
+.card{
+  min-width:0;background:rgba(16,23,34,.86);border:1px solid var(--line);
+  border-radius:25px;padding:22px 26px;box-shadow:0 18px 60px rgba(0,0,0,.32);
+  backdrop-filter:blur(20px)
+}
+.weather{
+  display:flex;align-items:center;justify-content:center;gap:26px
+}
+#weatherIcon{font-size:64px}
+#temp{font-size:58px;font-weight:800;letter-spacing:-.06em;white-space:nowrap}
+#weatherText{color:var(--sub);font-size:16px;line-height:1.4}
+.status{position:fixed;right:18px;top:14px;color:#8996a8;font-size:12px}
+
+/* 地震画面 */
+#quake{
+  z-index:50;display:none;background:#090b0f;
+  grid-template-rows:auto 1fr
+}
+#quake.show{display:grid;animation:in .2s ease-out}
+@keyframes in{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:scale(1)}}
+.quake-head{
+  background:linear-gradient(90deg,#a9001d,var(--red));
+  padding:max(18px,env(safe-area-inset-top)) 28px 20px;
+  display:flex;align-items:center;gap:24px;box-shadow:0 8px 30px rgba(0,0,0,.4)
+}
+.badge{
+  background:#fff;color:#bd001f;border-radius:22px;padding:13px 22px;
+  min-width:145px;text-align:center;font-weight:900
+}
+.badge small{display:block;font-size:16px;margin-bottom:3px}
+#scale{font-size:58px;line-height:1}
+.quake-head h1{margin:0;font-size:clamp(34px,6vw,80px)}
+#quakeTime{font-size:clamp(16px,2vw,27px);margin-top:5px}
+.close{
+  margin-left:auto;border:1px solid rgba(255,255,255,.5);
+  background:rgba(0,0,0,.18);color:white;border-radius:999px;padding:10px 18px
+}
+.quake-main{
+  display:grid;
+  grid-template-columns:1.35fr .65fr;
+  min-height:0;
+  padding:18px;
+  gap:18px
+}
+#place{font-size:clamp(45px,9vw,135px);font-weight:900;line-height:1.08}
+#details{margin-top:35px;font-size:clamp(24px,4vw,58px);font-weight:700}
+#comment{
+  margin-top:35px;padding:18px 30px;border-radius:18px;
+  background:#171d26;border:1px solid var(--line);
+  font-size:clamp(18px,2.3vw,34px)
+}
+
+#map{
+  width:100%;
+  height:100%;
+  min-height:0;
+  border-radius:24px;
+  overflow:hidden;
+  background:#cfd9e5;
+  box-shadow:0 18px 50px rgba(0,0,0,.35)
+}
+.quake-info-panel{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:28px;
+  border-radius:24px;
+  background:#121923;
+  border:1px solid var(--line)
+}
+.quake-marker{
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  background:#ff1235;
+  border:4px solid white;
+  box-shadow:0 0 0 rgba(255,18,53,.75);
+  animation:quakePulse 1.2s infinite
+}
+@keyframes quakePulse{
+  0%{box-shadow:0 0 0 0 rgba(255,18,53,.75)}
+  75%{box-shadow:0 0 0 34px rgba(255,18,53,0)}
+  100%{box-shadow:0 0 0 0 rgba(255,18,53,0)}
+}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{
+  background:#111923;
+  color:white
+}
+
+.test{
+  position:fixed;left:15px;top:12px;border:0;background:transparent;color:#748196;
+  font-size:12px;padding:8px
+}
+@media(max-width:700px){
+  #normal{padding:10px;gap:10px;grid-template-rows:1fr 120px}
+  #clock{font-size:clamp(82px,27vw,145px)}
+  #date{margin-top:14px;font-size:18px}
+  .bottom{height:120px}
+  .card{border-radius:18px;padding:12px 16px}
+  #weatherIcon{font-size:46px}
+  #temp{font-size:42px}
+  #weatherText{font-size:13px}
+  .quake-head{padding:14px;gap:10px}
+  .badge{min-width:82px;padding:9px 10px;border-radius:15px}
+  .badge small{font-size:11px}
+  #scale{font-size:34px}
+  .quake-head h1{font-size:27px}
+  #quakeTime{font-size:13px}
+  .close{position:absolute;right:8px;top:7px;font-size:11px;padding:6px 9px}
+  .quake-head>div:nth-child(2){padding-right:55px}
+  .quake-main{grid-template-columns:1fr;grid-template-rows:1fr auto;padding:10px;gap:10px}
+  #map{border-radius:16px;min-height:260px}
+  .quake-info-panel{border-radius:16px;padding:16px}
+}
+</style>
+</head>
+<body>
+<!-- Raspberry Piではブラウザを横画面・全画面表示で使う想定 -->
+
+<main id="normal">
+  <section class="clock-area">
+    <div id="clock">--:--<span id="seconds">--</span></div>
+    <div id="date">読み込み中</div>
+  </section>
+
+  <section class="bottom">
+    <div class="card weather">
+      <div id="weatherIcon">🌤️</div>
+      <div>
+        <div id="temp">--℃</div>
+        <div id="weatherText">天気を取得中…</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="status" id="status">地震情報 接続中…</div>
+<button class="test" id="test">地震テスト</button>
+
+<section id="quake">
+  <header class="quake-head">
+    <div class="badge"><small>最大震度</small><span id="scale">-</span></div>
+    <div>
+      <h1>地震情報</h1>
+      <div id="quakeTime">発生時刻を確認中</div>
+    </div>
+    <button class="close" id="close">閉じる</button>
+  </header>
+  <div class="quake-main">
+    <div id="map"></div>
+    <div class="quake-info-panel">
+      <div id="place">震源地不明</div>
+      <div id="details">規模・深さを確認中</div>
+      <div id="comment">落ち着いて、身の安全を確保してください。</div>
+    </div>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let lastId=localStorage.getItem("quakeLastId")||"";
+let quakeCloseTimer=null;
+let map=null;
+let quakeLayer=null;
+
+/* 時計 */
+function tick(){
+  const d=new Date();
+  $("clock").innerHTML=
+    String(d.getHours()).padStart(2,"0")+":"+
+    String(d.getMinutes()).padStart(2,"0")+
+    '<span id="seconds">'+String(d.getSeconds()).padStart(2,"0")+"</span>";
+  $("date").textContent=new Intl.DateTimeFormat("ja-JP",{
+    year:"numeric",month:"long",day:"numeric",weekday:"long"
+  }).format(d);
+}
+tick();setInterval(tick,1000);
+
+/* 天気 */
+const wc={
+  0:["☀️","快晴"],1:["🌤️","晴れ"],2:["⛅","一部くもり"],3:["☁️","くもり"],
+  45:["🌫️","霧"],48:["🌫️","霧"],51:["🌦️","弱い霧雨"],53:["🌦️","霧雨"],
+  55:["🌧️","強い霧雨"],61:["🌦️","弱い雨"],63:["🌧️","雨"],65:["🌧️","強い雨"],
+  71:["🌨️","弱い雪"],73:["🌨️","雪"],75:["❄️","強い雪"],80:["🌦️","にわか雨"],
+  81:["🌧️","にわか雨"],82:["⛈️","激しい雨"],95:["⛈️","雷雨"],96:["⛈️","雷雨"],99:["⛈️","激しい雷雨"]
+};
+async function weatherAt(lat,lon){
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code&timezone=Asia%2FTokyo`;
+  const r=await fetch(u);if(!r.ok)throw 0;
+  const c=(await r.json()).current,i=wc[c.weather_code]||["🌡️","天気"];
+  $("weatherIcon").textContent=i[0];
+  $("temp").textContent=Math.round(c.temperature_2m)+"℃";
+  $("weatherText").textContent=i[1]+"　体感 "+Math.round(c.apparent_temperature)+"℃";
+}
+function loadWeather(){
+  const fallback=()=>weatherAt(34.7685,137.9982).catch(()=>$("weatherText").textContent="天気を取得できません");
+  if(!navigator.geolocation)return fallback();
+  navigator.geolocation.getCurrentPosition(
+    p=>weatherAt(p.coords.latitude,p.coords.longitude).catch(fallback),
+    fallback,{timeout:7000,maximumAge:600000}
+  );
+}
+loadWeather();setInterval(loadWeather,600000);
+
+/* 地図 */
+
+function ensureMap(){
+  if(map)return;
+  if(typeof L==="undefined")return;
+  map=L.map("map",{zoomControl:true,attributionControl:true}).setView([36.2,138.2],5);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    maxZoom:18,
+    attribution:"&copy; OpenStreetMap contributors"
+  }).addTo(map);
+  quakeLayer=L.layerGroup().addTo(map);
+}
+
+/* 地震 */
+const scaleMap={10:"1",20:"2",30:"3",40:"4",45:"5弱",50:"5強",55:"6弱",60:"6強",70:"7"};
+const scale=v=>scaleMap[Number(v)]||String(v||"不明");
+function timeOf(d){
+  const raw=d?.earthquake?.time||d?.issue?.time;
+  if(!raw)return new Date();
+  let s=String(raw);
+  if(!/[zZ]|[+-]\d\d:\d\d$/.test(s))s=s.replace(" ","T")+"+09:00";
+  const x=new Date(s);return isNaN(x)?new Date():x;
+}
+function quakeId(d){return String(d?.id||d?.earthquake?.time||JSON.stringify(d).slice(0,100))}
+function showQuake(d,force=false){
+  const e=d?.earthquake||{},h=e?.hypocenter||{};
+  const max=Number(e.maxScale??d?.areas?.[0]?.scale??-1);
+  if(!force&&max<10)return; // 10 = 震度1
+  $("scale").textContent=scale(max);
+  $("place").textContent=h.name||"震源地不明";
+  $("quakeTime").textContent=new Intl.DateTimeFormat("ja-JP",{
+    month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"
+  }).format(timeOf(d))+"ごろ";
+  const mag=Number(h.magnitude)>0?"マグニチュード "+h.magnitude:"規模不明";
+  const dep=Number(h.depth)>=0?"深さ 約"+h.depth+"km":"深さ不明";
+  $("details").textContent=mag+"　／　"+dep;
+  $("comment").textContent=d?.comments?.forecast?.text||d?.comments?.freeFormComment||
+    "落ち着いて、身の安全を確保してください。";
+
+  $("quake").classList.add("show");
+
+  ensureMap();
+  if(map&&quakeLayer){
+    quakeLayer.clearLayers();
+    const lat=Number(h.latitude);
+    const lon=Number(h.longitude);
+
+    if(Number.isFinite(lat)&&Number.isFinite(lon)&&lat!==-200&&lon!==-200){
+      const icon=L.divIcon({
+        className:"",
+        html:'<div class="quake-marker"></div>',
+        iconSize:[28,28],
+        iconAnchor:[14,14]
+      });
+
+      L.marker([lat,lon],{icon}).addTo(quakeLayer)
+        .bindPopup("<b>"+(h.name||"震源地")+"</b><br>"+mag+"<br>"+dep)
+        .openPopup();
+
+      L.circle([lat,lon],{
+        radius:Math.max(50000,(Number(h.magnitude)||4)*30000),
+        color:"#ff1235",
+        weight:3,
+        fillColor:"#ff1235",
+        fillOpacity:.12
+      }).addTo(quakeLayer);
+
+      map.setView([lat,lon],max>=50?7:6);
+    }else{
+      map.setView([36.2,138.2],5);
+    }
+
+    setTimeout(()=>map.invalidateSize(),200);
+  }
+
+  clearTimeout(quakeCloseTimer);
+  const closeAfter = max >= 30 ? 60000 : 10000;
+  quakeCloseTimer = setTimeout(() => {
+    $("quake").classList.remove("show");
+  }, closeAfter);
+}
+$("close").onclick=()=>{clearTimeout(quakeCloseTimer);$("quake").classList.remove("show")};
+$("test").onclick=()=>showQuake({
+  id:"test",earthquake:{time:new Date().toISOString(),maxScale:40,
+  hypocenter:{name:"静岡県西部（テスト）",latitude:34.78,longitude:137.98,magnitude:5.1,depth:20}},
+  comments:{freeFormComment:"これはテスト表示です。実際の地震ではありません。"}
+},true);
+
+function receive(d,initial=false){
+  if(Number(d?.code)!==551)return;
+  const max=Number(d?.earthquake?.maxScale??-1);
+  $("status").textContent="地震情報 接続中";
+  if(max<10)return;
+  const id=quakeId(d),age=(Date.now()-timeOf(d).getTime())/60000;
+  if(id!==lastId&&(!initial||age<=15)){
+    lastId=id;localStorage.setItem("quakeLastId",id);showQuake(d);
+  }
+}
+async function latest(){
+  try{
+    const r=await fetch("https://api.p2pquake.net/v2/history?codes=551&limit=1");
+    const x=await r.json();if(x[0])receive(x[0],true);
+  }catch(e){$("status").textContent="地震情報 再接続中…"}
+}
+function wsConnect(){
+  const ws=new WebSocket("wss://api.p2pquake.net/v2/ws");
+  ws.onopen=()=>$("status").textContent="地震情報 リアルタイム接続中";
+  ws.onmessage=e=>{try{receive(JSON.parse(e.data),false)}catch(_){}};
+  ws.onerror=()=>ws.close();
+  ws.onclose=()=>{ $("status").textContent="地震情報 再接続中…";setTimeout(wsConnect,5000) };
+}
+latest();setInterval(latest,60000);wsConnect();
+</script>
+</body>
+</html>

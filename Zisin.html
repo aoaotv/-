@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#05080d">
-<title>時計・天気・地震の情報</title>
+<title>時計・天気・地震情報</title>
 <link rel="stylesheet"
  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
  crossorigin="">
@@ -224,31 +224,35 @@ function tick(){
 }
 tick();setInterval(tick,1000);
 
-/* 天気 */
-const wc={
-  0:["☀️","快晴"],1:["🌤️","晴れ"],2:["⛅","一部くもり"],3:["☁️","くもり"],
-  45:["🌫️","霧"],48:["🌫️","霧"],51:["🌦️","弱い霧雨"],53:["🌦️","霧雨"],
-  55:["🌧️","強い霧雨"],61:["🌦️","弱い雨"],63:["🌧️","雨"],65:["🌧️","強い雨"],
-  71:["🌨️","弱い雪"],73:["🌨️","雪"],75:["❄️","強い雪"],80:["🌦️","にわか雨"],
-  81:["🌧️","にわか雨"],82:["⛈️","激しい雨"],95:["⛈️","雷雨"],96:["⛈️","雷雨"],99:["⛈️","激しい雷雨"]
+/* 天気：ラズパイ用・位置情報を使わず掛川市で取得 */
+var wc={
+  0:"快晴",1:"晴れ",2:"一部くもり",3:"くもり",
+  45:"霧",48:"霧",51:"弱い霧雨",53:"霧雨",55:"強い霧雨",
+  61:"弱い雨",63:"雨",65:"強い雨",71:"弱い雪",73:"雪",75:"強い雪",
+  80:"にわか雨",81:"にわか雨",82:"激しい雨",95:"雷雨",96:"雷雨",99:"激しい雷雨"
 };
-async function weatherAt(lat,lon){
-  const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code&timezone=Asia%2FTokyo`;
-  const r=await fetch(u);if(!r.ok)throw 0;
-  const c=(await r.json()).current,i=wc[c.weather_code]||["🌡️","天気"];
-  $("weatherIcon").textContent=i[0];
-  $("temp").textContent=Math.round(c.temperature_2m)+"℃";
-  $("weatherText").textContent=i[1]+"　体感 "+Math.round(c.apparent_temperature)+"℃";
-}
 function loadWeather(){
-  const fallback=()=>weatherAt(34.7685,137.9982).catch(()=>$("weatherText").textContent="天気を取得できません");
-  if(!navigator.geolocation)return fallback();
-  navigator.geolocation.getCurrentPosition(
-    p=>weatherAt(p.coords.latitude,p.coords.longitude).catch(fallback),
-    fallback,{timeout:7000,maximumAge:600000}
-  );
+  var url="https://api.open-meteo.com/v1/forecast?latitude=34.7685&longitude=137.9982&current=temperature_2m,apparent_temperature,weather_code&timezone=Asia%2FTokyo";
+  $("weatherText").textContent="掛川市の天気を取得中…";
+  fetch(url)
+    .then(function(r){
+      if(!r.ok)throw new Error("weather "+r.status);
+      return r.json();
+    })
+    .then(function(data){
+      var c=data && data.current ? data.current : null;
+      if(!c)throw new Error("no current data");
+      $("temp").textContent=Math.round(c.temperature_2m)+"℃";
+      $("weatherText").textContent=(wc[c.weather_code]||"天気")+"　体感 "+Math.round(c.apparent_temperature)+"℃";
+    })
+    .catch(function(err){
+      $("temp").textContent="--℃";
+      $("weatherText").textContent="天気を取得できません（ネット接続を確認）";
+      if(window.console)console.log(err);
+    });
 }
-loadWeather();setInterval(loadWeather,600000);
+loadWeather();
+setInterval(loadWeather,600000);
 
 /* 地図 */
 function ensureMap(){

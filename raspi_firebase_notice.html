@@ -544,9 +544,9 @@
     function loadPresets(){
       try{
         const saved = JSON.parse(localStorage.getItem("noticePresets") || "null");
-        return Array.isArray(saved) ? saved : structuredClone(defaultPresets);
+        return Array.isArray(saved) ? saved : JSON.parse(JSON.stringify(defaultPresets));
       }catch{
-        return structuredClone(defaultPresets);
+        return JSON.parse(JSON.stringify(defaultPresets));
       }
     }
 
@@ -822,11 +822,11 @@
 
     function escapeHtml(str){
       return String(str ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
     }
 
     function openPresetModal(index){
@@ -889,7 +889,7 @@
     });
 
     $("resetPresets").addEventListener("click", () => {
-      presets = structuredClone(defaultPresets);
+      presets = JSON.parse(JSON.stringify(defaultPresets));
       savePresets();
       renderPresets();
       setStatus("定型ボタンを初期状態に戻したよ。");

@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>Sinzo Notice Display</title>
+  <style>
+    :root{
+      --bg:#000;
+      --panel:#151515;
+      --panel2:#222;
+      --text:#fff;
+      --sub:#aaa;
+      --accent:#2f80ed;
+      --danger:#d71920;
+      --warn:#f5a623;
+      --info:#1677ff;
+      --success:#17a668;
+      --border:#333;
+    }
+
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{margin:0;width:100%;height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
+    button,input,textarea,select{font:inherit}
+    button{cursor:pointer}
+
+    .hidden{display:none!important}
+    .screen{min-height:100vh}
+
+    /* 最初のモード選択 */
+    #modeSelect{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      background:linear-gradient(160deg,#050505,#151515);
+    }
+    .mode-card{
+      width:min(560px,100%);
+      background:rgba(24,24,24,.96);
+      border:1px solid var(--border);
+      border-radius:24px;
+      padding:24px;
+      box-shadow:0 24px 70px rgba(0,0,0,.45);
+    }
+    .mode-card h1{margin:0 0 8px;font-size:30px}
+    .mode-card p{margin:0 0 24px;color:var(--sub);line-height:1.6}
+    .big-btn{
+      width:100%;
+      border:0;
+      border-radius:18px;
+      padding:20px;
+      margin-top:12px;
+      color:white;
+      font-weight:800;
+      font-size:20px;
+    }
+    .display-btn{background:#111;border:1px solid #555}
+    .sender-btn{background:var(--accent)}
+
+    /* 表示側 */
+    #displayMode{
+      position:relative;
+      overflow:hidden;
+      background:#000;
+    }
+    #clockScreen{
+      width:100%;
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      text-align:center;
+      user-select:none;
+    }
+    #clock{
+      font-size:clamp(72px,18vw,230px);
+      font-weight:800;
+      letter-spacing:-0.06em;
+      line-height:.9;
+    }
+    #date{
+      margin-top:28px;
+      font-size:clamp(20px,3vw,42px);
+      color:#bbb;
+    }
+    #roomBadge{
+      position:fixed;
+      left:14px;
+      bottom:10px;
+      color:#555;
+      font-size:12px;
+    }
+    #displaySettingsBtn{
+      position:fixed;
+      right:12px;
+      bottom:12px;
+      border:1px solid #222;
+      color:#444;
+      background:#080808;
+      border-radius:12px;
+      padding:8px 10px;
+      z-index:10;
+    }
+
+    #noticeScreen{
+      position:fixed;
+      inset:0;
+      z-index:50;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      padding:5vw;
+      animation:fadeIn .2s ease;
+    }
+    #noticeInner{width:min(1100px,100%)}
+    #noticeType{
+      font-weight:900;
+      font-size:clamp(22px,4vw,52px);
+      margin-bottom:24px;
+      letter-spacing:.08em;
+    }
+    #noticeTitle{
+      font-size:clamp(42px,8vw,110px);
+      line-height:1.08;
+      font-weight:900;
+      overflow-wrap:anywhere;
+    }
+    #noticeBody{
+      margin-top:34px;
+      font-size:clamp(22px,4.2vw,56px);
+      line-height:1.45;
+      white-space:pre-wrap;
+      overflow-wrap:anywhere;
+    }
+    #noticeTimer{
+      position:absolute;
+      right:22px;
+      bottom:18px;
+      font-size:clamp(18px,2vw,30px);
+      font-weight:700;
+      opacity:.85;
+    }
+    #noticeClose{
+      position:absolute;
+      left:18px;
+      bottom:16px;
+      padding:10px 16px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.5);
+      background:rgba(0,0,0,.25);
+      color:white;
+      font-weight:700;
+    }
+
+    /* 送信側 */
+    #senderMode{
+      background:#0b0b0b;
+      padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    }
+    .sender-wrap{
+      width:min(820px,100%);
+      margin:auto;
+      padding:18px;
+    }
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:16px;
+    }
+    .topbar h1{font-size:26px;margin:0}
+    .ghost{
+      border:1px solid var(--border);
+      background:#171717;
+      color:white;
+      border-radius:12px;
+      padding:10px 13px;
+    }
+    .card{
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:20px;
+      padding:16px;
+      margin-bottom:14px;
+    }
+    .card h2{font-size:18px;margin:0 0 14px}
+    label{
+      display:block;
+      color:#bbb;
+      font-size:13px;
+      font-weight:700;
+      margin:12px 0 6px;
+    }
+    input,textarea,select{
+      width:100%;
+      border:1px solid #3a3a3a;
+      background:#0f0f0f;
+      color:white;
+      border-radius:13px;
+      padding:13px;
+      outline:none;
+    }
+    textarea{min-height:100px;resize:vertical}
+    input:focus,textarea:focus,select:focus{border-color:#777}
+    .row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .send-main{
+      width:100%;
+      border:0;
+      border-radius:16px;
+      background:var(--accent);
+      color:white;
+      padding:17px;
+      font-size:19px;
+      font-weight:900;
+      margin-top:14px;
+    }
+    .stop-main{
+      width:100%;
+      border:1px solid #555;
+      border-radius:16px;
+      background:#222;
+      color:white;
+      padding:14px;
+      font-weight:800;
+      margin-top:9px;
+    }
+    .status{
+      margin-top:10px;
+      color:#aaa;
+      min-height:1.3em;
+      font-size:13px;
+    }
+
+    .preset-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .preset{
+      position:relative;
+      min-height:115px;
+      border-radius:17px;
+      border:1px solid #3b3b3b;
+      background:#202020;
+      color:#fff;
+      text-align:left;
+      padding:15px;
+      overflow:hidden;
+    }
+    .preset strong{
+      display:block;
+      font-size:17px;
+      line-height:1.3;
+      padding-right:30px;
+    }
+    .preset small{
+      display:block;
+      color:#bbb;
+      margin-top:8px;
+      line-height:1.35;
+    }
+    .preset .preset-time{
+      position:absolute;
+      right:12px;
+      bottom:10px;
+      color:#888;
+      font-size:12px;
+    }
+    .preset-edit{
+      position:absolute;
+      right:8px;
+      top:8px;
+      border:0;
+      color:#aaa;
+      background:rgba(0,0,0,.3);
+      border-radius:9px;
+      width:28px;
+      height:28px;
+      z-index:2;
+    }
+    .add-preset{
+      min-height:115px;
+      border-radius:17px;
+      border:1px dashed #555;
+      background:transparent;
+      color:#aaa;
+      font-size:18px;
+      font-weight:800;
+    }
+
+    /* ダイアログ */
+    .modal{
+      position:fixed;
+      inset:0;
+      z-index:100;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(0,0,0,.72);
+      backdrop-filter:blur(8px);
+    }
+    .modal-box{
+      width:min(520px,100%);
+      max-height:90vh;
+      overflow:auto;
+      background:#171717;
+      border:1px solid #3b3b3b;
+      border-radius:22px;
+      padding:18px;
+    }
+    .modal-box h2{margin:0 0 14px}
+    .modal-actions{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-top:16px;
+    }
+    .modal-actions button{
+      border-radius:13px;
+      padding:13px;
+      font-weight:800;
+    }
+    .save{border:0;background:var(--accent);color:white}
+    .cancel{border:1px solid #444;background:#222;color:white}
+    .delete{width:100%;margin-top:10px;border:1px solid #803838;background:#371515;color:#ffb0b0;border-radius:13px;padding:12px;font-weight:800}
+
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    @media (max-width:560px){
+      .row{grid-template-columns:1fr}
+      .preset-grid{grid-template-columns:1fr 1fr}
+    }
+  </style>
+</head>
+<body>
+
+  <section id="modeSelect" class="screen">
+    <div class="mode-card">
+      <h1>お知らせ表示システム</h1>
+      <p>同じHTMLを、ラズパイでは表示用、スマホでは送信用として使えます。</p>
+
+      <label for="startRoom">部屋番号</label>
+      <input id="startRoom" inputmode="numeric" maxlength="20" placeholder="例：1234" />
+
+      <button class="big-btn display-btn" id="openDisplay">📺 表示側で開く</button>
+      <button class="big-btn sender-btn" id="openSender">📱 送信側で開く</button>
+    </div>
+  </section>
+
+  <section id="displayMode" class="screen hidden">
+    <div id="clockScreen">
+      <div id="clock">--:--</div>
+      <div id="date">----</div>
+    </div>
+    <div id="roomBadge"></div>
+    <button id="displaySettingsBtn">設定</button>
+
+    <div id="noticeScreen" class="hidden">
+      <div id="noticeInner">
+        <div id="noticeType"></div>
+        <div id="noticeTitle"></div>
+        <div id="noticeBody"></div>
+      </div>
+      <div id="noticeTimer"></div>
+      <button id="noticeClose">閉じる</button>
+    </div>
+  </section>
+
+  <section id="senderMode" class="screen hidden">
+    <div class="sender-wrap">
+      <div class="topbar">
+        <h1>送信パネル</h1>
+        <button class="ghost" id="backToMode">切り替え</button>
+      </div>
+
+      <div class="card">
+        <h2>接続先</h2>
+        <label for="senderRoom">部屋番号</label>
+        <input id="senderRoom" inputmode="numeric" maxlength="20" />
+      </div>
+
+      <div class="card">
+        <h2>手動送信</h2>
+
+        <label for="manualType">種類</label>
+        <select id="manualType">
+          <option value="info">お知らせ（青）</option>
+          <option value="warning">注意（オレンジ）</option>
+          <option value="emergency">緊急（赤）</option>
+          <option value="success">完了（緑）</option>
+          <option value="plain">通常（黒）</option>
+        </select>
+
+        <label for="manualTitle">タイトル</label>
+        <input id="manualTitle" maxlength="80" placeholder="例：集合してください" />
+
+        <label for="manualBody">詳細</label>
+        <textarea id="manualBody" maxlength="1000" placeholder="例：10分後に玄関へ集合してください。"></textarea>
+
+        <div class="row">
+          <div>
+            <label for="manualDuration">表示時間（秒）</label>
+            <input id="manualDuration" type="number" min="1" max="86400" value="10" />
+          </div>
+          <div>
+            <label for="manualSound">音</label>
+            <select id="manualSound">
+              <option value="true">鳴らす</option>
+              <option value="false">鳴らさない</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="send-main" id="sendManual">送信</button>
+        <button class="stop-main" id="stopNotice">表示を終了</button>
+        <div class="status" id="sendStatus"></div>
+      </div>
+
+      <div class="card">
+        <div class="topbar" style="margin-bottom:12px">
+          <h2 style="margin:0">定型ボタン</h2>
+          <button class="ghost" id="resetPresets">初期化</button>
+        </div>
+        <div class="preset-grid" id="presetGrid"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="presetModal" class="modal hidden">
+    <div class="modal-box">
+      <h2 id="presetModalTitle">定型文を登録</h2>
+
+      <label for="presetName">ボタン名</label>
+      <input id="presetName" maxlength="30" placeholder="例：集合" />
+
+      <label for="presetType">種類</label>
+      <select id="presetType">
+        <option value="info">お知らせ（青）</option>
+        <option value="warning">注意（オレンジ）</option>
+        <option value="emergency">緊急（赤）</option>
+        <option value="success">完了（緑）</option>
+        <option value="plain">通常（黒）</option>
+      </select>
+
+      <label for="presetTitle">タイトル</label>
+      <input id="presetTitle" maxlength="80" />
+
+      <label for="presetBody">詳細</label>
+      <textarea id="presetBody" maxlength="1000"></textarea>
+
+      <div class="row">
+        <div>
+          <label for="presetDuration">表示時間（秒）</label>
+          <input id="presetDuration" type="number" min="1" max="86400" value="10" />
+        </div>
+        <div>
+          <label for="presetSound">音</label>
+          <select id="presetSound">
+            <option value="true">鳴らす</option>
+            <option value="false">鳴らさない</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="cancel" id="cancelPreset">キャンセル</button>
+        <button class="save" id="savePreset">保存</button>
+      </div>
+      <button class="delete hidden" id="deletePreset">この定型文を削除</button>
+    </div>
+  </div>
+
+  <!-- Firebase compat SDK: 1つのHTMLで使いやすい構成 -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
+  <script>
+    // 前に使っていたFirebase設定
+    const firebaseConfig = {
+      apiKey: "AIzaSyC9ygh6HjX5mK1e5ZBnEWnLQCEjRMKIEWA",
+      authDomain: "sinzo-3f972.firebaseapp.com",
+      databaseURL: "https://sinzo-3f972-default-rtdb.firebaseio.com",
+      projectId: "sinzo-3f972",
+      storageBucket: "sinzo-3f972.firebasestorage.app",
+      messagingSenderId: "1058985227031",
+      appId: "1:1058985227031:web:6b152911e917903910bd52"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const $ = id => document.getElementById(id);
+
+    let currentRoom = localStorage.getItem("noticeRoom") || "1234";
+    let displayRef = null;
+    let countdownTimer = null;
+    let hideTimer = null;
+    let currentEditingPreset = null;
+
+    const defaultPresets = [
+      {
+        name:"集合",
+        type:"info",
+        title:"集合してください",
+        body:"指定された場所に集合してください。",
+        duration:15,
+        sound:true
+      },
+      {
+        name:"注意",
+        type:"warning",
+        title:"注意してください",
+        body:"周囲の状況を確認してください。",
+        duration:20,
+        sound:true
+      },
+      {
+        name:"緊急",
+        type:"emergency",
+        title:"緊急のお知らせ",
+        body:"安全を確認し、すぐに行動してください。",
+        duration:60,
+        sound:true
+      },
+      {
+        name:"終了",
+        type:"success",
+        title:"終了しました",
+        body:"お知らせは以上です。",
+        duration:8,
+        sound:false
+      }
+    ];
+
+    function loadPresets(){
+      try{
+        const saved = JSON.parse(localStorage.getItem("noticePresets") || "null");
+        return Array.isArray(saved) ? saved : structuredClone(defaultPresets);
+      }catch{
+        return structuredClone(defaultPresets);
+      }
+    }
+
+    let presets = loadPresets();
+
+    function savePresets(){
+      localStorage.setItem("noticePresets", JSON.stringify(presets));
+    }
+
+    function sanitizeRoom(value){
+      return String(value || "").trim().replace(/[.#$\[\]\/]/g, "");
+    }
+
+    function setRoom(room){
+      currentRoom = sanitizeRoom(room) || "1234";
+      localStorage.setItem("noticeRoom", currentRoom);
+      $("startRoom").value = currentRoom;
+      $("senderRoom").value = currentRoom;
+      $("roomBadge").textContent = "ROOM " + currentRoom;
+    }
+
+    setRoom(currentRoom);
+
+    function showOnly(id){
+      ["modeSelect","displayMode","senderMode"].forEach(x => $(x).classList.add("hidden"));
+      $(id).classList.remove("hidden");
+    }
+
+    $("openDisplay").addEventListener("click", () => {
+      setRoom($("startRoom").value);
+      showOnly("displayMode");
+      startDisplayListener();
+      tryFullscreen();
+    });
+
+    $("openSender").addEventListener("click", () => {
+      setRoom($("startRoom").value);
+      showOnly("senderMode");
+      renderPresets();
+    });
+
+    $("backToMode").addEventListener("click", () => showOnly("modeSelect"));
+
+    $("displaySettingsBtn").addEventListener("click", () => {
+      if(displayRef) displayRef.off();
+      showOnly("modeSelect");
+    });
+
+    $("senderRoom").addEventListener("change", e => setRoom(e.target.value));
+
+    async function tryFullscreen(){
+      try{
+        if(document.documentElement.requestFullscreen){
+          await document.documentElement.requestFullscreen();
+        }
+      }catch{}
+    }
+
+    function updateClock(){
+      const now = new Date();
+      const time = new Intl.DateTimeFormat("ja-JP",{
+        hour:"2-digit",
+        minute:"2-digit",
+        hour12:false
+      }).format(now);
+
+      const date = new Intl.DateTimeFormat("ja-JP",{
+        year:"numeric",
+        month:"2-digit",
+        day:"2-digit",
+        weekday:"short"
+      }).format(now);
+
+      $("clock").textContent = time;
+      $("date").textContent = date;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    const typeStyle = {
+      info:{bg:"#1677ff",label:"お知らせ"},
+      warning:{bg:"#d87b00",label:"注意"},
+      emergency:{bg:"#d71920",label:"緊急"},
+      success:{bg:"#118b58",label:"完了"},
+      plain:{bg:"#111111",label:"お知らせ"}
+    };
+
+    function startDisplayListener(){
+      if(displayRef) displayRef.off();
+      displayRef = db.ref("noticeRooms/" + currentRoom + "/current");
+
+      displayRef.on("value", snapshot => {
+        const data = snapshot.val();
+        if(!data || data.show !== true){
+          hideNoticeLocal();
+          return;
+        }
+
+        const sentAt = Number(data.sentAt || Date.now());
+        const duration = Math.max(1, Number(data.duration || 10));
+        const elapsed = Math.floor((Date.now() - sentAt) / 1000);
+        const remaining = duration - elapsed;
+
+        if(remaining <= 0){
+          hideNoticeLocal();
+          return;
+        }
+
+        showNotice(data, remaining);
+      }, error => {
+        console.error(error);
+      });
+    }
+
+    function showNotice(data, remaining){
+      clearTimeout(hideTimer);
+      clearInterval(countdownTimer);
+
+      const style = typeStyle[data.type] || typeStyle.info;
+      $("noticeScreen").style.background = style.bg;
+      $("noticeType").textContent = style.label;
+      $("noticeTitle").textContent = data.title || "お知らせ";
+      $("noticeBody").textContent = data.body || "";
+      $("noticeScreen").classList.remove("hidden");
+
+      let left = remaining;
+      $("noticeTimer").textContent = left + "秒";
+
+      countdownTimer = setInterval(() => {
+        left--;
+        $("noticeTimer").textContent = Math.max(0,left) + "秒";
+        if(left <= 0){
+          hideNoticeLocal();
+        }
+      },1000);
+
+      hideTimer = setTimeout(hideNoticeLocal, remaining * 1000);
+
+      if(data.sound){
+        playAlert(data.type);
+      }
+    }
+
+    function hideNoticeLocal(){
+      clearTimeout(hideTimer);
+      clearInterval(countdownTimer);
+      $("noticeScreen").classList.add("hidden");
+    }
+
+    $("noticeClose").addEventListener("click", hideNoticeLocal);
+
+    function playAlert(type){
+      try{
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+
+        const patterns = type === "emergency"
+          ? [[880,0],[660,.18],[880,.36],[660,.54],[880,.72]]
+          : [[740,0],[980,.22]];
+
+        patterns.forEach(([freq,delay]) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.frequency.value = freq;
+          osc.type = "square";
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+          gain.gain.exponentialRampToValueAtTime(0.45, ctx.currentTime + delay + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.17);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(ctx.currentTime + delay);
+          osc.stop(ctx.currentTime + delay + 0.2);
+        });
+
+        setTimeout(() => ctx.close(), 1800);
+      }catch(e){
+        console.warn("音を鳴らせませんでした",e);
+      }
+    }
+
+    async function sendNotice(data){
+      const room = sanitizeRoom($("senderRoom").value);
+      if(!room){
+        setStatus("部屋番号を入力してね。", true);
+        return;
+      }
+
+      setRoom(room);
+
+      const payload = {
+        show:true,
+        type:data.type || "info",
+        title:String(data.title || "").trim() || "お知らせ",
+        body:String(data.body || "").trim(),
+        duration:Math.max(1, Math.min(86400, Number(data.duration || 10))),
+        sound:Boolean(data.sound),
+        sentAt:firebase.database.ServerValue.TIMESTAMP,
+        messageId:Date.now() + "-" + Math.random().toString(36).slice(2)
+      };
+
+      try{
+        await db.ref("noticeRooms/" + currentRoom + "/current").set(payload);
+        setStatus("送信したよ。");
+      }catch(e){
+        console.error(e);
+        setStatus("送信できなかった。Firebaseのルールや通信を確認してね。", true);
+      }
+    }
+
+    function setStatus(text, isError=false){
+      $("sendStatus").textContent = text;
+      $("sendStatus").style.color = isError ? "#ff8f8f" : "#9bd6b7";
+    }
+
+    $("sendManual").addEventListener("click", () => {
+      sendNotice({
+        type:$("manualType").value,
+        title:$("manualTitle").value,
+        body:$("manualBody").value,
+        duration:$("manualDuration").value,
+        sound:$("manualSound").value === "true"
+      });
+    });
+
+    $("stopNotice").addEventListener("click", async () => {
+      setRoom($("senderRoom").value);
+      try{
+        await db.ref("noticeRooms/" + currentRoom + "/current/show").set(false);
+        setStatus("表示を終了したよ。");
+      }catch(e){
+        setStatus("終了指示を送れなかった。", true);
+      }
+    });
+
+    function renderPresets(){
+      const grid = $("presetGrid");
+      grid.innerHTML = "";
+
+      presets.forEach((preset,index) => {
+        const wrap = document.createElement("div");
+        wrap.style.position = "relative";
+
+        const btn = document.createElement("button");
+        btn.className = "preset";
+        const style = typeStyle[preset.type] || typeStyle.info;
+        btn.style.borderColor = style.bg;
+        btn.innerHTML = `
+          <strong>${escapeHtml(preset.name)}</strong>
+          <small>${escapeHtml(preset.title)}</small>
+          <span class="preset-time">${Number(preset.duration)}秒</span>
+        `;
+        btn.addEventListener("click", () => sendNotice(preset));
+
+        const edit = document.createElement("button");
+        edit.className = "preset-edit";
+        edit.textContent = "✎";
+        edit.title = "編集";
+        edit.addEventListener("click", e => {
+          e.stopPropagation();
+          openPresetModal(index);
+        });
+
+        wrap.appendChild(btn);
+        wrap.appendChild(edit);
+        grid.appendChild(wrap);
+      });
+
+      const add = document.createElement("button");
+      add.className = "add-preset";
+      add.textContent = "＋ 登録";
+      add.addEventListener("click", () => openPresetModal(null));
+      grid.appendChild(add);
+    }
+
+    function escapeHtml(str){
+      return String(str ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    function openPresetModal(index){
+      currentEditingPreset = index;
+      const isEdit = index !== null;
+      const p = isEdit ? presets[index] : {
+        name:"",
+        type:"info",
+        title:"",
+        body:"",
+        duration:10,
+        sound:true
+      };
+
+      $("presetModalTitle").textContent = isEdit ? "定型文を編集" : "定型文を登録";
+      $("presetName").value = p.name;
+      $("presetType").value = p.type;
+      $("presetTitle").value = p.title;
+      $("presetBody").value = p.body;
+      $("presetDuration").value = p.duration;
+      $("presetSound").value = String(p.sound);
+      $("deletePreset").classList.toggle("hidden", !isEdit);
+      $("presetModal").classList.remove("hidden");
+    }
+
+    function closePresetModal(){
+      $("presetModal").classList.add("hidden");
+      currentEditingPreset = null;
+    }
+
+    $("cancelPreset").addEventListener("click", closePresetModal);
+
+    $("savePreset").addEventListener("click", () => {
+      const data = {
+        name:$("presetName").value.trim() || "定型文",
+        type:$("presetType").value,
+        title:$("presetTitle").value.trim() || "お知らせ",
+        body:$("presetBody").value.trim(),
+        duration:Math.max(1,Math.min(86400,Number($("presetDuration").value || 10))),
+        sound:$("presetSound").value === "true"
+      };
+
+      if(currentEditingPreset === null){
+        presets.push(data);
+      }else{
+        presets[currentEditingPreset] = data;
+      }
+
+      savePresets();
+      renderPresets();
+      closePresetModal();
+    });
+
+    $("deletePreset").addEventListener("click", () => {
+      if(currentEditingPreset === null) return;
+      presets.splice(currentEditingPreset,1);
+      savePresets();
+      renderPresets();
+      closePresetModal();
+    });
+
+    $("resetPresets").addEventListener("click", () => {
+      presets = structuredClone(defaultPresets);
+      savePresets();
+      renderPresets();
+      setStatus("定型ボタンを初期状態に戻したよ。");
+    });
+
+    $("presetModal").addEventListener("click", e => {
+      if(e.target === $("presetModal")) closePresetModal();
+    });
+
+    // URLで直接モード指定も可能:
+    // ?mode=display&room=1234
+    // ?mode=sender&room=1234
+    const params = new URLSearchParams(location.search);
+    const urlRoom = params.get("room");
+    const urlMode = params.get("mode");
+
+    if(urlRoom) setRoom(urlRoom);
+
+    if(urlMode === "display"){
+      showOnly("displayMode");
+      startDisplayListener();
+    }else if(urlMode === "sender"){
+      showOnly("senderMode");
+      renderPresets();
+    }
+  </script>
+</body>
+</html>

@@ -51,7 +51,7 @@ body{
 .weather{
   display:flex;align-items:center;justify-content:center;gap:26px
 }
-#weatherIcon{font-size:64px}
+
 #temp{font-size:58px;font-weight:800;letter-spacing:-.06em;white-space:nowrap}
 #weatherText{color:var(--sub);font-size:16px;line-height:1.4}
 .status{position:fixed;right:18px;top:14px;color:#8996a8;font-size:12px}
@@ -144,7 +144,7 @@ body{
   #date{margin-top:14px;font-size:18px}
   .bottom{height:120px}
   .card{border-radius:18px;padding:12px 16px}
-  #weatherIcon{font-size:46px}
+  
   #temp{font-size:42px}
   #weatherText{font-size:13px}
   .quake-head{padding:14px;gap:10px}
@@ -162,7 +162,7 @@ body{
 </style>
 </head>
 <body>
-<!-- Raspberry Piではブラウザを横画面・全画面表示で使う想定 -->
+<!-- Raspberry Piではlocalhostで開き、横画面・全画面表示で使う想定 -->
 
 <main id="normal">
   <section class="clock-area">
@@ -172,7 +172,7 @@ body{
 
   <section class="bottom">
     <div class="card weather">
-     
+      
       <div>
         <div id="temp">--℃</div>
         <div id="weatherText">天気を取得中…</div>
@@ -251,117 +251,29 @@ function loadWeather(){
 loadWeather();setInterval(loadWeather,600000);
 
 /* 地図 */
-
 function ensureMap(){
   if(map)return;
-  if(typeof L==="undefined")return;
+  if(typeof L==="undefined"){$("status").textContent="地図ライブラリを読み込めません";return;}
   map=L.map("map",{zoomControl:true,attributionControl:true}).setView([36.2,138.2],5);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    maxZoom:18,
-    attribution:"&copy; OpenStreetMap contributors"
-  }).addTo(map);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
   quakeLayer=L.layerGroup().addTo(map);
 }
-
-/* 地震 */
-const scaleMap={10:"1",20:"2",30:"3",40:"4",45:"5弱",50:"5強",55:"6弱",60:"6強",70:"7"};
-const scale=v=>scaleMap[Number(v)]||String(v||"不明");
-function timeOf(d){
-  const raw=d?.earthquake?.time||d?.issue?.time;
-  if(!raw)return new Date();
-  let s=String(raw);
-  if(!/[zZ]|[+-]\d\d:\d\d$/.test(s))s=s.replace(" ","T")+"+09:00";
-  const x=new Date(s);return isNaN(x)?new Date():x;
-}
-function quakeId(d){return String(d?.id||d?.earthquake?.time||JSON.stringify(d).slice(0,100))}
-function showQuake(d,force=false){
-  const e=d?.earthquake||{},h=e?.hypocenter||{};
-  const max=Number(e.maxScale??d?.areas?.[0]?.scale??-1);
-  if(!force&&max<10)return; // 10 = 震度1
-  $("scale").textContent=scale(max);
-  $("place").textContent=h.name||"震源地不明";
-  $("quakeTime").textContent=new Intl.DateTimeFormat("ja-JP",{
-    month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"
-  }).format(timeOf(d))+"ごろ";
-  const mag=Number(h.magnitude)>0?"マグニチュード "+h.magnitude:"規模不明";
-  const dep=Number(h.depth)>=0?"深さ 約"+h.depth+"km":"深さ不明";
-  $("details").textContent=mag+"　／　"+dep;
-  $("comment").textContent=d?.comments?.forecast?.text||d?.comments?.freeFormComment||
-    "落ち着いて、身の安全を確保してください。";
-
-  $("quake").classList.add("show");
-
-  ensureMap();
-  if(map&&quakeLayer){
-    quakeLayer.clearLayers();
-    const lat=Number(h.latitude);
-    const lon=Number(h.longitude);
-
-    if(Number.isFinite(lat)&&Number.isFinite(lon)&&lat!==-200&&lon!==-200){
-      const icon=L.divIcon({
-        className:"",
-        html:'<div class="quake-marker"></div>',
-        iconSize:[28,28],
-        iconAnchor:[14,14]
-      });
-
-      L.marker([lat,lon],{icon}).addTo(quakeLayer)
-        .bindPopup("<b>"+(h.name||"震源地")+"</b><br>"+mag+"<br>"+dep)
-        .openPopup();
-
-      L.circle([lat,lon],{
-        radius:Math.max(50000,(Number(h.magnitude)||4)*30000),
-        color:"#ff1235",
-        weight:3,
-        fillColor:"#ff1235",
-        fillOpacity:.12
-      }).addTo(quakeLayer);
-
-      map.setView([lat,lon],max>=50?7:6);
-    }else{
-      map.setView([36.2,138.2],5);
-    }
-
-    setTimeout(()=>map.invalidateSize(),200);
-  }
-
-  clearTimeout(quakeCloseTimer);
-  const closeAfter = max >= 30 ? 60000 : 10000;
-  quakeCloseTimer = setTimeout(() => {
-    $("quake").classList.remove("show");
-  }, closeAfter);
-}
-$("close").onclick=()=>{clearTimeout(quakeCloseTimer);$("quake").classList.remove("show")};
-$("test").onclick=()=>showQuake({
-  id:"test",earthquake:{time:new Date().toISOString(),maxScale:40,
-  hypocenter:{name:"静岡県西部（テスト）",latitude:34.78,longitude:137.98,magnitude:5.1,depth:20}},
-  comments:{freeFormComment:"これはテスト表示です。実際の地震ではありません。"}
-},true);
-
-function receive(d,initial=false){
-  if(Number(d?.code)!==551)return;
-  const max=Number(d?.earthquake?.maxScale??-1);
-  $("status").textContent="地震情報 接続中";
-  if(max<10)return;
-  const id=quakeId(d),age=(Date.now()-timeOf(d).getTime())/60000;
-  if(id!==lastId&&(!initial||age<=15)){
-    lastId=id;localStorage.setItem("quakeLastId",id);showQuake(d);
-  }
-}
-async function latest(){
-  try{
-    const r=await fetch("https://api.p2pquake.net/v2/history?codes=551&limit=1");
-    const x=await r.json();if(x[0])receive(x[0],true);
-  }catch(e){$("status").textContent="地震情報 再接続中…"}
-}
-function wsConnect(){
-  const ws=new WebSocket("wss://api.p2pquake.net/v2/ws");
-  ws.onopen=()=>$("status").textContent="地震情報 リアルタイム接続中";
-  ws.onmessage=e=>{try{receive(JSON.parse(e.data),false)}catch(_){}};
-  ws.onerror=()=>ws.close();
-  ws.onclose=()=>{ $("status").textContent="地震情報 再接続中…";setTimeout(wsConnect,5000) };
-}
+var scaleMap={10:"1",20:"2",30:"3",40:"4",45:"5弱",50:"5強",55:"6弱",60:"6強",70:"7"};
+function getEq(d){return d&&d.earthquake?d.earthquake:{};}
+function getHypo(d){var e=getEq(d);return e&&e.hypocenter?e.hypocenter:{};}
+function getMaxScale(d){var e=getEq(d);if(typeof e.maxScale!=="undefined"&&e.maxScale!==null)return Number(e.maxScale);if(d&&d.areas&&d.areas[0]&&typeof d.areas[0].scale!=="undefined")return Number(d.areas[0].scale);return -1;}
+function scale(v){var n=Number(v);return scaleMap[n]||String(v||"不明");}
+function timeOf(d){var e=getEq(d);var raw=(e&&e.time)||(d&&d.issue&&d.issue.time);if(!raw)return new Date();var s=String(raw);if(!(/[zZ]|[+-]\\d\\d:\\d\\d$/.test(s)))s=s.replace(" ","T")+"+09:00";var x=new Date(s);return isNaN(x.getTime())?new Date():x;}
+function quakeId(d){var e=getEq(d);return String((d&&d.id)||(e&&e.time)||JSON.stringify(d).slice(0,100));}
+function closeQuake(){clearTimeout(quakeCloseTimer);$("quake").classList.remove("show");}
+function showQuake(d,force){force=!!force;var e=getEq(d);var h=getHypo(d);var max=getMaxScale(d);if(!force&&max<10)return;$("scale").textContent=scale(max);$("place").textContent=h.name||"震源地不明";$("quakeTime").textContent=new Intl.DateTimeFormat("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(timeOf(d))+"ごろ";var mag=Number(h.magnitude)>0?"マグニチュード "+h.magnitude:"規模不明";var dep=Number(h.depth)>=0?"深さ 約"+h.depth+"km":"深さ不明";$("details").textContent=mag+"　／　"+dep;var comment="落ち着いて、身の安全を確保してください。";if(d&&d.comments){if(d.comments.forecast&&d.comments.forecast.text)comment=d.comments.forecast.text;else if(d.comments.freeFormComment)comment=d.comments.freeFormComment;}$("comment").textContent=comment;$("quake").classList.add("show");ensureMap();if(map&&quakeLayer){quakeLayer.clearLayers();var lat=Number(h.latitude);var lon=Number(h.longitude);if(isFinite(lat)&&isFinite(lon)&&lat!==-200&&lon!==-200){var icon=L.divIcon({className:"",html:'<div class="quake-marker"></div>',iconSize:[28,28],iconAnchor:[14,14]});L.marker([lat,lon],{icon:icon}).addTo(quakeLayer).bindPopup("<b>"+(h.name||"震源地")+"</b><br>"+mag+"<br>"+dep).openPopup();L.circle([lat,lon],{radius:Math.max(50000,(Number(h.magnitude)||4)*30000),color:"#ff1235",weight:3,fillColor:"#ff1235",fillOpacity:.12}).addTo(quakeLayer);map.setView([lat,lon],max>=50?7:6);}else{map.setView([36.2,138.2],5);}setTimeout(function(){map.invalidateSize();},250);}clearTimeout(quakeCloseTimer);quakeCloseTimer=setTimeout(closeQuake,max>=30?60000:10000);}
+$("close").onclick=closeQuake;
+$("test").onclick=function(){showQuake({id:"test",earthquake:{time:new Date().toISOString(),maxScale:40,hypocenter:{name:"静岡県西部（テスト）",latitude:34.78,longitude:137.98,magnitude:5.1,depth:20}},comments:{freeFormComment:"これはテスト表示です。実際の地震ではありません。"}},true);};
+function receive(d,initial){if(!d||Number(d.code)!==551)return;var max=getMaxScale(d);$("status").textContent="地震情報 接続中";if(max<10)return;var id=quakeId(d);var age=(Date.now()-timeOf(d).getTime())/60000;if(id!==lastId&&(!initial||age<=15)){lastId=id;localStorage.setItem("quakeLastId",id);showQuake(d,false);}}
+function latest(){fetch("https://api.p2pquake.net/v2/history?codes=551&limit=1").then(function(r){if(!r.ok)throw new Error("quake");return r.json();}).then(function(x){if(x&&x[0])receive(x[0],true);}).catch(function(){$("status").textContent="地震情報 再接続中…";});}
+function wsConnect(){var ws;try{ws=new WebSocket("wss://api.p2pquake.net/v2/ws");}catch(e){setTimeout(wsConnect,5000);return;}ws.onopen=function(){$("status").textContent="地震情報 リアルタイム接続中";};ws.onmessage=function(e){try{receive(JSON.parse(e.data),false);}catch(err){}};ws.onerror=function(){try{ws.close();}catch(e){}};ws.onclose=function(){$("status").textContent="地震情報 再接続中…";setTimeout(wsConnect,5000);};}
 latest();setInterval(latest,60000);wsConnect();
+
 </script>
 </body>
 </html>

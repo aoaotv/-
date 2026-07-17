@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="theme-color" content="#111111" />
+  <title>連動火災警報パネル</title>
+  <style>
+    :root{
+      --bg:#0b0b0d;
+      --panel:#17171b;
+      --text:#ffffff;
+      --muted:#a7a7b0;
+      --red:#e31818;
+      --red2:#ff3b30;
+      --green:#21c36a;
+      --line:#2b2b31;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic",sans-serif}
+    button,input{font:inherit}
+    button{touch-action:manipulation}
+    .screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:22px}
+    .screen.active{display:flex}
+    .card{width:min(520px,100%);background:var(--panel);border:1px solid var(--line);border-radius:26px;padding:24px;box-shadow:0 20px 60px #0008}
+    h1,h2,p{margin-top:0}
+    h1{font-size:clamp(25px,6vw,38px);margin-bottom:8px}
+    .sub{color:var(--muted);line-height:1.6;margin-bottom:20px}
+    label{display:block;font-weight:700;margin:16px 0 8px}
+    input{
+      width:100%;border:1px solid #3a3a43;background:#0e0e11;color:#fff;
+      border-radius:14px;padding:15px 16px;font-size:18px;outline:none
+    }
+    input:focus{border-color:#777}
+    .primary,.secondary,.danger,.cancel{
+      width:100%;border:0;border-radius:16px;padding:16px;font-weight:800;font-size:18px;cursor:pointer
+    }
+    .primary{background:#fff;color:#111;margin-top:20px}
+    .secondary{background:#2a2a31;color:#fff;margin-top:10px}
+    .danger{background:#fff;color:#b30000}
+    .cancel{background:#26262d;color:#fff}
+    .statusbar{
+      position:absolute;top:max(12px,env(safe-area-inset-top));left:16px;right:16px;
+      display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px
+    }
+    .pill{background:#1f1f25;border:1px solid #34343b;border-radius:999px;padding:8px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .online{display:flex;align-items:center;gap:7px}
+    .dot{width:9px;height:9px;border-radius:50%;background:#666}
+    .dot.ok{background:var(--green);box-shadow:0 0 12px #21c36a}
+    #normalScreen{flex-direction:column}
+    .normalContent{text-align:center;width:min(520px,100%)}
+    .deviceTitle{font-size:clamp(22px,5vw,32px);font-weight:900;margin-bottom:8px}
+    .roomText{color:var(--muted);margin-bottom:30px}
+    .reportBtn{
+      width:min(58vw,250px);aspect-ratio:1;border-radius:50%;border:10px solid #5b0b0b;
+      background:radial-gradient(circle at 35% 30%,#ff5a4f 0,#e31818 35%,#9b0505 100%);
+      color:#fff;font-weight:1000;font-size:clamp(25px,7vw,38px);
+      box-shadow:0 16px 50px #e3181855,inset 0 4px 10px #fff4;
+      cursor:pointer
+    }
+    .hint{color:var(--muted);margin-top:22px;font-size:14px}
+    .countWrap{text-align:center;width:min(520px,100%)}
+    .countLabel{font-size:clamp(25px,6vw,40px);font-weight:900}
+    .countNum{
+      font-size:clamp(110px,34vw,210px);line-height:1;font-weight:1000;
+      color:#ff3b30;cursor:pointer;margin:20px 0
+    }
+    .countHint{color:#ffd0cd;margin-bottom:22px;font-weight:700}
+    .alarm{
+      background:#d90808;
+      animation:flash 1s steps(2,end) infinite;
+      flex-direction:column;text-align:center
+    }
+    @keyframes flash{50%{background:#750000}}
+    .alarmTitle{font-size:clamp(38px,10vw,80px);font-weight:1000;margin:0 0 20px}
+    .alarmIcon{font-size:clamp(75px,20vw,150px);line-height:1}
+    .alarmInfo{font-size:clamp(18px,4vw,28px);font-weight:800;line-height:1.7}
+    .stopBtn{
+      position:absolute;left:18px;right:18px;bottom:max(18px,env(safe-area-inset-bottom));
+      width:calc(100% - 36px);border:0;border-radius:18px;padding:17px;background:#fff;color:#b00000;
+      font-size:20px;font-weight:1000
+    }
+    .keypadCard{text-align:center}
+    .pinDots{height:42px;font-size:32px;letter-spacing:12px;margin:10px 0 18px}
+    .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+    .key{
+      border:0;border-radius:18px;background:#2b2b32;color:#fff;padding:17px 5px;font-size:27px;font-weight:800
+    }
+    .key.zero{grid-column:2}
+    .key.clear{background:#4b2525}
+    .pinError{height:24px;color:#ff7b72;font-weight:800;margin-top:10px}
+    .footerNote{
+      position:absolute;bottom:max(10px,env(safe-area-inset-bottom));left:12px;right:12px;
+      color:#777;text-align:center;font-size:11px
+    }
+    .toast{
+      position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);
+      background:#fff;color:#111;padding:12px 18px;border-radius:999px;font-weight:800;
+      opacity:0;pointer-events:none;transition:.2s;z-index:1000;max-width:90%;text-align:center
+    }
+    .toast.show{opacity:1;transform:translate(-50%,0)}
+    @media (orientation:landscape) and (max-height:600px){
+      .reportBtn{width:180px}.hint{margin-top:12px}.countNum{font-size:110px;margin:8px 0}
+      .alarmIcon{font-size:80px}.alarmTitle{font-size:42px;margin-bottom:5px}.alarmInfo{font-size:18px}
+    }
+  </style>
+</head>
+<body>
+
+  <section id="setupScreen" class="screen active">
+    <div class="card">
+      <h1>連動火災警報パネル</h1>
+      <p class="sub">同じ部屋番号を設定した端末どうしで警報を連動します。</p>
+
+      <label for="roomInput">部屋番号</label>
+      <input id="roomInput" inputmode="numeric" maxlength="12" placeholder="例：1234" autocomplete="off">
+
+      <label for="deviceInput">このデバイス名</label>
+      <input id="deviceInput" maxlength="30" placeholder="例：リビング、2階廊下" autocomplete="off">
+
+      <button id="joinBtn" class="primary">接続して開始</button>
+      <button id="soundBtn" class="secondary">音声を有効にする</button>
+      <p class="sub" style="font-size:12px;margin:16px 0 0">※これは工作・試作用です。本物の住宅用火災警報器の代わりには使わないでください。</p>
+    </div>
+  </section>
+
+  <section id="normalScreen" class="screen">
+    <div class="statusbar">
+      <div id="connectionPill" class="pill online"><span id="connectionDot" class="dot"></span><span id="connectionText">接続中</span></div>
+      <button id="settingsBtn" class="pill" style="color:#fff">設定</button>
+    </div>
+    <div class="normalContent">
+      <div id="deviceTitle" class="deviceTitle">デバイス</div>
+      <div id="roomText" class="roomText">部屋 ----</div>
+      <button id="reportBtn" class="reportBtn">火災を<br>報告</button>
+      <div class="hint">押すと10秒後に同じ部屋の全端末へ送信</div>
+    </div>
+    <div class="footerNote">工作・試作用。実際の防災設備としては使用しないでください。</div>
+  </section>
+
+  <section id="countdownScreen" class="screen">
+    <div class="countWrap">
+      <div class="countLabel">火災を報告します</div>
+      <div id="countNum" class="countNum">10</div>
+      <div class="countHint">数字を押すと今すぐ送信</div>
+      <button id="cancelBtn" class="cancel">キャンセル</button>
+    </div>
+  </section>
+
+  <section id="alarmScreen" class="screen alarm">
+    <div class="alarmIcon">🔥</div>
+    <h2 class="alarmTitle">火災警報</h2>
+    <div id="alarmInfo" class="alarmInfo">発報端末：---</div>
+    <button id="stopBtn" class="stopBtn">警報停止</button>
+  </section>
+
+  <section id="pinScreen" class="screen">
+    <div class="card keypadCard">
+      <h2>停止パスワード</h2>
+      <div id="pinDots" class="pinDots">----</div>
+      <div class="keypad">
+        <button class="key" data-num="1">1</button>
+        <button class="key" data-num="2">2</button>
+        <button class="key" data-num="3">3</button>
+        <button class="key" data-num="4">4</button>
+        <button class="key" data-num="5">5</button>
+        <button class="key" data-num="6">6</button>
+        <button class="key" data-num="7">7</button>
+        <button class="key" data-num="8">8</button>
+        <button class="key" data-num="9">9</button>
+        <button class="key clear" id="clearPin">消す</button>
+        <button class="key zero" data-num="0">0</button>
+        <button class="key" id="backToAlarm">戻る</button>
+      </div>
+      <div id="pinError" class="pinError"></div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyC9ygh6HjX5mK1e5ZBnEWnLQCEjRMKIEWA",
+      authDomain: "sinzo-3f972.firebaseapp.com",
+      databaseURL: "https://sinzo-3f972-default-rtdb.firebaseio.com",
+      projectId: "sinzo-3f972",
+      storageBucket: "sinzo-3f972.firebasestorage.app",
+      messagingSenderId: "1058985227031",
+      appId: "1:1058985227031:web:6b152911e917903910bd52"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const $ = id => document.getElementById(id);
+    const screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen"];
+
+    let room = "";
+    let deviceName = "";
+    let deviceId = localStorage.getItem("fireDeviceId") || crypto.randomUUID();
+    let alarmRef = null;
+    let deviceRef = null;
+    let countdownTimer = null;
+    let countdown = 10;
+    let pin = "";
+    let audioCtx = null;
+    let sirenTimer = null;
+    let sirenOsc = null;
+    let alarmActive = false;
+
+    localStorage.setItem("fireDeviceId", deviceId);
+    $("roomInput").value = localStorage.getItem("fireRoom") || "";
+    $("deviceInput").value = localStorage.getItem("fireDeviceName") || "";
+
+    function showScreen(id){
+      screens.forEach(s => $(s).classList.toggle("active", s === id));
+    }
+
+    function toast(text){
+      $("toast").textContent = text;
+      $("toast").classList.add("show");
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => $("toast").classList.remove("show"), 2200);
+    }
+
+    async function enableAudio(){
+      try{
+        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(audioCtx.state === "suspended") await audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        gain.gain.value = 0.0001;
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.03);
+        toast("警報音を有効にした");
+      }catch(e){
+        toast("音声を有効にできなかった");
+      }
+    }
+
+    function startSiren(){
+      stopSiren();
+      if(!audioCtx) return;
+      const playTone = (freq) => {
+        if(!alarmActive || !audioCtx) return;
+        try{
+          sirenOsc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          sirenOsc.type = "square";
+          sirenOsc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.38);
+          sirenOsc.connect(gain).connect(audioCtx.destination);
+          sirenOsc.start();
+          sirenOsc.stop(audioCtx.currentTime + 0.4);
+        }catch(e){}
+      };
+      let high = false;
+      playTone(760);
+      sirenTimer = setInterval(() => {
+        high = !high;
+        playTone(high ? 1150 : 760);
+        if(navigator.vibrate) navigator.vibrate([350,150,350]);
+      }, 430);
+    }
+
+    function stopSiren(){
+      if(sirenTimer) clearInterval(sirenTimer);
+      sirenTimer = null;
+      try{ if(sirenOsc) sirenOsc.stop(); }catch(e){}
+      sirenOsc = null;
+      if(navigator.vibrate) navigator.vibrate(0);
+    }
+
+    function sanitizeRoom(value){
+      return value.trim().replace(/[.#$\[\]\/]/g,"").slice(0,12);
+    }
+
+    function connectRoom(){
+      const newRoom = sanitizeRoom($("roomInput").value);
+      const newName = $("deviceInput").value.trim().slice(0,30);
+
+      if(!newRoom){ toast("部屋番号を入力して"); return; }
+      if(!newName){ toast("デバイス名を入力して"); return; }
+
+      room = newRoom;
+      deviceName = newName;
+      localStorage.setItem("fireRoom", room);
+      localStorage.setItem("fireDeviceName", deviceName);
+
+      if(alarmRef) alarmRef.off();
+      alarmRef = db.ref(`fireAlarmRooms/${room}/alarm`);
+      deviceRef = db.ref(`fireAlarmRooms/${room}/devices/${deviceId}`);
+
+      deviceRef.set({
+        name: deviceName,
+        online: true,
+        lastSeen: firebase.database.ServerValue.TIMESTAMP
+      });
+      deviceRef.onDisconnect().remove();
+
+      setInterval(() => {
+        if(deviceRef) deviceRef.update({
+          name: deviceName,
+          online: true,
+          lastSeen: firebase.database.ServerValue.TIMESTAMP
+        });
+      }, 15000);
+
+      alarmRef.on("value", snap => {
+        const data = snap.val();
+        if(data && data.active){
+          enterAlarm(data);
+        }else{
+          exitAlarm();
+        }
+      });
+
+      $("deviceTitle").textContent = deviceName;
+      $("roomText").textContent = `部屋 ${room}`;
+      showScreen("normalScreen");
+    }
+
+    function beginCountdown(){
+      enableAudio();
+      countdown = 10;
+      $("countNum").textContent = countdown;
+      showScreen("countdownScreen");
+      clearInterval(countdownTimer);
+      countdownTimer = setInterval(() => {
+        countdown--;
+        $("countNum").textContent = countdown;
+        if(countdown <= 0){
+          clearInterval(countdownTimer);
+          sendAlarm();
+        }
+      },1000);
+    }
+
+    function cancelCountdown(){
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      showScreen("normalScreen");
+    }
+
+    function sendAlarm(){
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      if(!room || !deviceName) return;
+      alarmRef.set({
+        active: true,
+        senderName: deviceName,
+        senderId: deviceId,
+        startedAt: firebase.database.ServerValue.TIMESTAMP
+      }).catch(() => toast("送信できなかった"));
+    }
+
+    function enterAlarm(data){
+      alarmActive = true;
+      clearInterval(countdownTimer);
+      const own = data.senderId === deviceId;
+      $("alarmInfo").innerHTML =
+        `発報端末：${escapeHtml(data.senderName || "不明")}<br>` +
+        `部屋番号：${escapeHtml(room)}${own ? "<br>この端末から発報" : ""}`;
+      showScreen("alarmScreen");
+      startSiren();
+    }
+
+    function exitAlarm(){
+      if(!alarmActive) return;
+      alarmActive = false;
+      stopSiren();
+      pin = "";
+      updatePin();
+      showScreen("normalScreen");
+    }
+
+    function escapeHtml(str){
+      return String(str).replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[c]));
+    }
+
+    function updatePin(){
+      $("pinDots").textContent = "●".repeat(pin.length) + "—".repeat(4-pin.length);
+    }
+
+    function inputPin(n){
+      if(pin.length >= 4) return;
+      pin += n;
+      updatePin();
+      $("pinError").textContent = "";
+      if(pin.length === 4){
+        if(pin === "2059"){
+          alarmRef.set({
+            active:false,
+            stoppedBy:deviceName,
+            stoppedAt:firebase.database.ServerValue.TIMESTAMP
+          });
+          pin = "";
+          updatePin();
+        }else{
+          $("pinError").textContent = "パスワードが違います";
+          if(navigator.vibrate) navigator.vibrate([100,80,100]);
+          setTimeout(() => { pin=""; updatePin(); }, 650);
+        }
+      }
+    }
+
+    $("soundBtn").addEventListener("click", enableAudio);
+    $("joinBtn").addEventListener("click", async () => {
+      await enableAudio();
+      connectRoom();
+    });
+    $("reportBtn").addEventListener("click", beginCountdown);
+    $("countNum").addEventListener("click", sendAlarm);
+    $("cancelBtn").addEventListener("click", cancelCountdown);
+    $("stopBtn").addEventListener("click", () => {
+      pin = "";
+      updatePin();
+      $("pinError").textContent = "";
+      showScreen("pinScreen");
+    });
+    $("backToAlarm").addEventListener("click", () => showScreen("alarmScreen"));
+    $("clearPin").addEventListener("click", () => { pin=""; updatePin(); });
+    document.querySelectorAll("[data-num]").forEach(btn =>
+      btn.addEventListener("click", () => inputPin(btn.dataset.num))
+    );
+    $("settingsBtn").addEventListener("click", () => {
+      if(deviceRef) deviceRef.remove();
+      if(alarmRef) alarmRef.off();
+      room = "";
+      deviceName = "";
+      showScreen("setupScreen");
+    });
+
+    db.ref(".info/connected").on("value", snap => {
+      const ok = snap.val() === true;
+      $("connectionDot").classList.toggle("ok", ok);
+      $("connectionText").textContent = ok ? "オンライン" : "オフライン";
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if(!document.hidden && alarmActive) startSiren();
+    });
+  </script>
+</body>
+</html>

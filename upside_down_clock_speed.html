@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>反転 時計・時速</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      border-bottom: 2px solid #222;
+    }
+
+    .panel:last-child {
+      border-bottom: none;
+    }
+
+    .flip {
+      transform: scaleY(-1);
+      text-align: center;
+      line-height: 0.9;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      width: 100%;
+      padding: 0 12px;
+    }
+
+    #clock {
+      font-size: clamp(78px, 23vw, 240px);
+      letter-spacing: -0.04em;
+    }
+
+    #speed {
+      font-size: clamp(100px, 31vw, 310px);
+      letter-spacing: -0.06em;
+    }
+
+    .unit {
+      font-size: 0.24em;
+      letter-spacing: 0;
+      margin-left: 0.12em;
+      font-weight: 700;
+    }
+
+    #status {
+      position: fixed;
+      left: 50%;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      transform: translateX(-50%) scaleY(-1);
+      font-size: 12px;
+      color: #888;
+      white-space: nowrap;
+      z-index: 5;
+    }
+
+    #startButton {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: rgba(0,0,0,0.92);
+      color: #fff;
+      font-size: 28px;
+      font-weight: 800;
+      z-index: 10;
+      cursor: pointer;
+    }
+
+    #startButton span {
+      display: block;
+      transform: scaleY(-1);
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div id="clock" class="flip">00:00</div>
+  </div>
+
+  <div class="panel">
+    <div id="speed" class="flip">--<span class="unit">km/h</span></div>
+  </div>
+
+  <div id="status">位置情報待機中</div>
+
+  <button id="startButton">
+    <span>タップして開始</span>
+  </button>
+
+  <script>
+    const clockEl = document.getElementById("clock");
+    const speedEl = document.getElementById("speed");
+    const statusEl = document.getElementById("status");
+    const startButton = document.getElementById("startButton");
+
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      clockEl.textContent = `${h}:${m}`;
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function showSpeed(kmh) {
+      const value = Number.isFinite(kmh) ? Math.max(0, Math.round(kmh)) : null;
+      speedEl.innerHTML = `${value === null ? "--" : value}<span class="unit">km/h</span>`;
+    }
+
+    function startGPS() {
+      startButton.style.display = "none";
+
+      if (!("geolocation" in navigator)) {
+        statusEl.textContent = "この端末は位置情報に対応していません";
+        showSpeed(null);
+        return;
+      }
+
+      statusEl.textContent = "位置情報を取得中…";
+
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const metersPerSecond = position.coords.speed;
+
+          if (metersPerSecond === null || !Number.isFinite(metersPerSecond)) {
+            showSpeed(0);
+            statusEl.textContent = `GPS精度 約${Math.round(position.coords.accuracy)}m`;
+            return;
+          }
+
+          const kmh = metersPerSecond * 3.6;
+          showSpeed(kmh);
+          statusEl.textContent = `GPS精度 約${Math.round(position.coords.accuracy)}m`;
+        },
+        (error) => {
+          showSpeed(null);
+
+          if (error.code === 1) {
+            statusEl.textContent = "位置情報を許可してね";
+          } else if (error.code === 2) {
+            statusEl.textContent = "位置情報を取得できません";
+          } else if (error.code === 3) {
+            statusEl.textContent = "位置情報の取得がタイムアウトしました";
+          } else {
+            statusEl.textContent = "位置情報エラー";
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 15000
+        }
+      );
+    }
+
+    startButton.addEventListener("click", startGPS, { once: true });
+
+    document.addEventListener("dblclick", async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch (_) {}
+    });
+  </script>
+</body>
+</html>

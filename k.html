@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
   <meta name="theme-color" content="#111111" />
-  <title>連動火災の警報パネル</title>
+  <title>連動火災警報パネル</title>
   <style>
     :root{
       --bg:#0b0b0d;
@@ -18,7 +18,7 @@
     }
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic",sans-serif}
-    button,input{font:inherit}
+    button,input,textarea,select{font:inherit}
     button{touch-action:manipulation}
     .screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:22px}
     .screen.active{display:flex}
@@ -27,11 +27,13 @@
     h1{font-size:clamp(25px,6vw,38px);margin-bottom:8px}
     .sub{color:var(--muted);line-height:1.6;margin-bottom:20px}
     label{display:block;font-weight:700;margin:16px 0 8px}
-    input{
+    input,textarea,select{
       width:100%;border:1px solid #3a3a43;background:#0e0e11;color:#fff;
       border-radius:14px;padding:15px 16px;font-size:18px;outline:none
     }
-    input:focus{border-color:#777}
+    input:focus,textarea:focus,select:focus{border-color:#777}
+    textarea{min-height:110px;resize:vertical}
+    input[type="color"]{height:58px;padding:6px}
     .primary,.secondary,.danger,.cancel{
       width:100%;border:0;border-radius:16px;padding:16px;font-weight:800;font-size:18px;cursor:pointer
     }
@@ -93,6 +95,33 @@
       position:absolute;bottom:max(10px,env(safe-area-inset-bottom));left:12px;right:12px;
       color:#777;text-align:center;font-size:11px
     }
+    .noticeOpenBtn{
+      position:absolute;right:18px;bottom:max(18px,env(safe-area-inset-bottom));
+      width:64px;height:64px;border-radius:50%;border:0;background:#fff;color:#111;
+      font-size:30px;font-weight:900;box-shadow:0 10px 30px #0008;z-index:5
+    }
+    .noticeCard{max-height:90vh;overflow:auto}
+    .formRow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .checkRow{
+      display:flex;align-items:center;gap:12px;background:#0e0e11;border:1px solid #3a3a43;
+      border-radius:14px;padding:14px 16px;margin-top:16px;font-weight:800
+    }
+    .checkRow input{width:24px;height:24px;margin:0}
+    .noticeDisplay{
+      flex-direction:column;text-align:center;padding:35px;color:#fff
+    }
+    .noticeDisplayTitle{
+      font-size:clamp(38px,10vw,90px);font-weight:1000;line-height:1.1;
+      margin:0 0 25px;max-width:95vw;word-break:break-word
+    }
+    .noticeDisplayDetail{
+      font-size:clamp(21px,5vw,42px);font-weight:750;line-height:1.55;
+      white-space:pre-wrap;max-width:1000px;word-break:break-word
+    }
+    .noticeMeta{
+      position:absolute;top:max(15px,env(safe-area-inset-top));left:20px;right:20px;
+      display:flex;justify-content:space-between;font-size:14px;font-weight:800;opacity:.85
+    }
     .toast{
       position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);
       background:#fff;color:#111;padding:12px 18px;border-radius:999px;font-weight:800;
@@ -135,6 +164,7 @@
       <button id="reportBtn" class="reportBtn">火災を<br>報告</button>
       <div class="hint">押すと10秒後に同じ部屋の全端末へ送信</div>
     </div>
+    <button id="noticeOpenBtn" class="noticeOpenBtn" title="お知らせ送信">✉</button>
     <div class="footerNote">工作・試作用。実際の防災設備としては使用しないでください。</div>
   </section>
 
@@ -176,6 +206,53 @@
     </div>
   </section>
 
+
+  <section id="noticeSetupScreen" class="screen">
+    <div class="card noticeCard">
+      <h2>全画面お知らせ送信</h2>
+
+      <label for="noticeColor">背景色</label>
+      <input id="noticeColor" type="color" value="#1268d3">
+
+      <label for="noticeTitleInput">タイトル</label>
+      <input id="noticeTitleInput" maxlength="60" placeholder="例：集合してください">
+
+      <label for="noticeDetailInput">詳細</label>
+      <textarea id="noticeDetailInput" maxlength="500" placeholder="例：1階のリビングへ集合してください。"></textarea>
+
+      <div class="formRow">
+        <div>
+          <label for="noticeSeconds">表示時間（秒）</label>
+          <input id="noticeSeconds" type="number" inputmode="numeric" min="1" max="600" value="10">
+        </div>
+        <div>
+          <label for="noticeTextColor">文字色</label>
+          <select id="noticeTextColor">
+            <option value="#ffffff">白</option>
+            <option value="#000000">黒</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="checkRow">
+        <input id="noticeSpeech" type="checkbox">
+        <span>受信した端末で読み上げる</span>
+      </label>
+
+      <button id="sendNoticeBtn" class="primary">この部屋へ送信</button>
+      <button id="cancelNoticeBtn" class="secondary">戻る</button>
+    </div>
+  </section>
+
+  <section id="noticeDisplayScreen" class="screen noticeDisplay">
+    <div class="noticeMeta">
+      <span id="noticeSender">送信元：---</span>
+      <span id="noticeRemain">--秒</span>
+    </div>
+    <h2 id="noticeDisplayTitle" class="noticeDisplayTitle"></h2>
+    <div id="noticeDisplayDetail" class="noticeDisplayDetail"></div>
+  </section>
+
   <div id="toast" class="toast"></div>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -196,6 +273,7 @@
     var room = "";
     var deviceName = "";
     var alarmRef = null;
+    var noticeRef = null;
     var deviceRef = null;
     var heartbeatTimer = null;
     var countdownTimer = null;
@@ -205,7 +283,10 @@
     var sirenTimer = null;
     var sirenOsc = null;
     var alarmActive = false;
-    var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen"];
+    var noticeTimer = null;
+    var noticeCountdownTimer = null;
+    var currentNoticeId = "";
+    var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen","noticeSetupScreen","noticeDisplayScreen"];
 
     function byId(id){ return document.getElementById(id); }
 
@@ -321,6 +402,7 @@
       if(heartbeatTimer) clearInterval(heartbeatTimer);
 
       alarmRef = db.ref("fireAlarmRooms/"+room+"/alarm");
+      noticeRef = db.ref("fireAlarmRooms/"+room+"/notice");
       deviceRef = db.ref("fireAlarmRooms/"+room+"/devices/"+deviceId);
       deviceRef.set({name:deviceName,online:true,lastSeen:firebase.database.ServerValue.TIMESTAMP});
       deviceRef.onDisconnect().remove();
@@ -331,6 +413,11 @@
       alarmRef.on("value",function(snap){
         var data=snap.val();
         if(data && data.active) enterAlarm(data); else exitAlarm();
+      });
+
+      noticeRef.on("value",function(snap){
+        var data=snap.val();
+        if(data && data.active) showNotice(data);
       });
 
       byId("deviceTitle").innerHTML=escapeHtml(deviceName);
@@ -367,6 +454,7 @@
     }
 
     function enterAlarm(data){
+      closeNotice();
       alarmActive=true;
       if(countdownTimer) clearInterval(countdownTimer);
       countdownTimer=null;
@@ -383,6 +471,119 @@
       pin="";
       updatePin();
       showScreen("normalScreen");
+    }
+
+
+    function playChime(){
+      enableAudio();
+      if(!audioCtx) return;
+      try{
+        var now=audioCtx.currentTime;
+        var notes=[659.25,783.99,1046.5];
+        var i;
+        for(i=0;i<notes.length;i++){
+          var osc=audioCtx.createOscillator();
+          var gain=audioCtx.createGain();
+          osc.type="sine";
+          osc.frequency.value=notes[i];
+          gain.gain.setValueAtTime(0.0001,now+i*0.16);
+          gain.gain.exponentialRampToValueAtTime(0.16,now+i*0.16+0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001,now+i*0.16+0.55);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now+i*0.16);
+          osc.stop(now+i*0.16+0.58);
+        }
+      }catch(e){}
+    }
+
+    function speakNotice(title,detail){
+      try{
+        if(!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        var utter=new SpeechSynthesisUtterance((title||"")+"。"+(detail||""));
+        utter.lang="ja-JP";
+        utter.rate=0.95;
+        utter.pitch=1;
+        window.speechSynthesis.speak(utter);
+      }catch(e){}
+    }
+
+    function sendNotice(){
+      if(!noticeRef){ toast("部屋に接続していません"); return; }
+      var title=String(byId("noticeTitleInput").value).replace(/^\s+|\s+$/g,"");
+      var detail=String(byId("noticeDetailInput").value).replace(/^\s+|\s+$/g,"");
+      var seconds=parseInt(byId("noticeSeconds").value,10);
+      if(!title){ toast("タイトルを入力して"); return; }
+      if(isNaN(seconds)||seconds<1) seconds=1;
+      if(seconds>600) seconds=600;
+
+      enableAudio();
+      noticeRef.set({
+        active:true,
+        id:"notice-"+new Date().getTime()+"-"+Math.floor(Math.random()*100000),
+        title:title,
+        detail:detail,
+        background:byId("noticeColor").value||"#1268d3",
+        textColor:byId("noticeTextColor").value||"#ffffff",
+        seconds:seconds,
+        speech:byId("noticeSpeech").checked===true,
+        senderName:deviceName,
+        senderId:deviceId,
+        sentAt:firebase.database.ServerValue.TIMESTAMP
+      },function(error){
+        if(error) toast("送信できなかった");
+        else showScreen("normalScreen");
+      });
+    }
+
+    function showNotice(data){
+      if(alarmActive) return;
+      var id=String(data.id||data.sentAt||"");
+      if(id && currentNoticeId===id) return;
+      currentNoticeId=id;
+
+      if(noticeTimer) clearTimeout(noticeTimer);
+      if(noticeCountdownTimer) clearInterval(noticeCountdownTimer);
+      if(window.speechSynthesis) try{window.speechSynthesis.cancel();}catch(e){}
+
+      var seconds=parseInt(data.seconds,10);
+      if(isNaN(seconds)||seconds<1) seconds=10;
+      if(seconds>600) seconds=600;
+
+      var screen=byId("noticeDisplayScreen");
+      screen.style.backgroundColor=data.background||"#1268d3";
+      screen.style.color=data.textColor||"#ffffff";
+      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.title||"お知らせ");
+      byId("noticeDisplayDetail").innerHTML=escapeHtml(data.detail||"");
+      byId("noticeSender").innerHTML="送信元："+escapeHtml(data.senderName||"不明");
+      byId("noticeRemain").innerHTML=seconds+"秒";
+
+      showScreen("noticeDisplayScreen");
+      playChime();
+      if(data.speech){
+        setTimeout(function(){speakNotice(data.title,data.detail);},700);
+      }
+
+      var remain=seconds;
+      noticeCountdownTimer=setInterval(function(){
+        remain--;
+        if(remain<0) remain=0;
+        byId("noticeRemain").innerHTML=remain+"秒";
+      },1000);
+
+      noticeTimer=setTimeout(function(){
+        closeNotice();
+      },seconds*1000);
+    }
+
+    function closeNotice(){
+      if(noticeTimer) clearTimeout(noticeTimer);
+      if(noticeCountdownTimer) clearInterval(noticeCountdownTimer);
+      noticeTimer=null;
+      noticeCountdownTimer=null;
+      if(window.speechSynthesis) try{window.speechSynthesis.cancel();}catch(e){}
+      if(!alarmActive) showScreen("normalScreen");
     }
 
     function repeatText(text,count){
@@ -434,9 +635,13 @@
       bindPress("stopBtn",function(){pin="";updatePin();byId("pinError").innerHTML="";showScreen("pinScreen");});
       bindPress("backToAlarm",function(){showScreen("alarmScreen");});
       bindPress("clearPin",function(){pin="";updatePin();});
+      bindPress("noticeOpenBtn",function(){enableAudio();showScreen("noticeSetupScreen");});
+      bindPress("cancelNoticeBtn",function(){showScreen("normalScreen");});
+      bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){
         if(deviceRef) deviceRef.remove();
         if(alarmRef) alarmRef.off();
+        if(noticeRef) noticeRef.off();
         if(heartbeatTimer) clearInterval(heartbeatTimer);
         room="";deviceName="";showScreen("setupScreen");
       });

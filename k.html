@@ -55,18 +55,21 @@
     .online{display:flex;align-items:center;gap:7px}
     .dot{width:9px;height:9px;border-radius:50%;background:#666}
     .dot.ok{background:var(--green);box-shadow:0 0 12px #21c36a}
-    #normalScreen{flex-direction:column}
-    .normalContent{text-align:center;width:min(520px,100%)}
-    .deviceTitle{font-size:clamp(22px,5vw,32px);font-weight:900;margin-bottom:8px}
-    .roomText{color:var(--muted);margin-bottom:30px}
+    #normalScreen{flex-direction:column;background:#050507}
+    .normalContent{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center}
+    .clockWrap{display:flex;flex-direction:column;align-items:center;justify-content:center;transform:translateY(-1vh)}
+    .clockTime{font-size:clamp(92px,25vw,300px);line-height:.9;font-weight:900;letter-spacing:-.07em;font-variant-numeric:tabular-nums}
+    .clockDate{margin-top:24px;font-size:clamp(20px,4vw,42px);font-weight:750;color:#c7c7cf}
+    .deviceTitle{position:absolute;left:18px;bottom:88px;font-size:14px;font-weight:800;color:#aaa}
+    .roomText{position:absolute;left:18px;bottom:66px;color:#777;font-size:12px}
     .reportBtn{
-      width:250px;height:250px;max-width:58vw;max-height:58vw;border-radius:50%;border:10px solid #5b0b0b;
-      background:radial-gradient(circle at 35% 30%,#ff5a4f 0,#e31818 35%,#9b0505 100%);
-      color:#fff;font-weight:1000;font-size:clamp(25px,7vw,38px);
-      box-shadow:0 16px 50px #e3181855,inset 0 4px 10px #fff4;
-      cursor:pointer
+      position:absolute;right:18px;bottom:max(18px,env(safe-area-inset-bottom));
+      width:76px;height:76px;border-radius:50%;border:5px solid #5b0b0b;
+      background:radial-gradient(circle at 35% 30%,#ff5a4f 0,#e31818 38%,#9b0505 100%);
+      color:#fff;font-weight:1000;font-size:13px;line-height:1.15;
+      box-shadow:0 10px 28px #e3181855,inset 0 3px 7px #fff4;cursor:pointer;z-index:8
     }
-    .hint{color:var(--muted);margin-top:22px;font-size:14px}
+    .hint{display:none}
     .countWrap{text-align:center;width:min(520px,100%)}
     .countLabel{font-size:clamp(25px,6vw,40px);font-weight:900}
     .countNum{
@@ -102,7 +105,7 @@
       color:#777;text-align:center;font-size:11px
     }
     .noticeOpenBtn{
-      position:absolute;right:18px;bottom:max(18px,env(safe-area-inset-bottom));
+      position:absolute;left:18px;bottom:max(18px,env(safe-area-inset-bottom));
       width:64px;height:64px;border-radius:50%;border:0;background:#fff;color:#111;
       font-size:30px;font-weight:900;box-shadow:0 10px 30px #0008;z-index:5
     }
@@ -141,7 +144,7 @@
     }
     .toast.show{opacity:1;transform:translate(-50%,0)}
     @media (orientation:landscape) and (max-height:600px){
-      .reportBtn{width:180px}.hint{margin-top:12px}.countNum{font-size:110px;margin:8px 0}
+      .reportBtn{width:68px;height:68px;font-size:12px}.clockTime{font-size:28vw}.countNum{font-size:110px;margin:8px 0}
       .alarmIcon{font-size:80px}.alarmTitle{font-size:42px;margin-bottom:5px}.alarmInfo{font-size:18px}
     }
   </style>
@@ -192,10 +195,13 @@
       <button id="settingsBtn" class="pill" style="color:#fff">設定</button>
     </div>
     <div class="normalContent">
+      <div class="clockWrap">
+        <div id="clockTime" class="clockTime">--:--</div>
+        <div id="clockDate" class="clockDate">----</div>
+      </div>
       <div id="deviceTitle" class="deviceTitle">デバイス</div>
       <div id="roomText" class="roomText">部屋 ----</div>
-      <button id="reportBtn" class="reportBtn">火災を<br>報告</button>
-      <div class="hint">押すと10秒後に同じ部屋の全端末へ送信</div>
+      <button id="reportBtn" class="reportBtn">火災<br>報告</button>
     </div>
     <button id="noticeOpenBtn" class="noticeOpenBtn" title="お知らせ送信">✉</button>
     <div class="footerNote">工作・試作用。実際の防災設備としては使用しないでください。</div>
@@ -990,6 +996,15 @@
       }
     }
 
+    function updateClock(){
+      var now=new Date();
+      var hh=("0"+now.getHours()).slice(-2);
+      var mm=("0"+now.getMinutes()).slice(-2);
+      var days=["日","月","火","水","木","金","土"];
+      byId("clockTime").innerHTML=hh+":"+mm;
+      byId("clockDate").innerHTML=(now.getMonth()+1)+"月"+now.getDate()+"日（"+days[now.getDay()]+"）";
+    }
+
     function bindPress(id,fn){
       var el=byId(id);
       if(!el) return;
@@ -1000,6 +1015,8 @@
     function init(){
       byId("roomInput").value=localStorage.getItem("fireRoom")||"";
       byId("deviceInput").value=localStorage.getItem("fireDeviceName")||"";
+      updateClock();
+      setInterval(updateClock,1000);
 
       try{
         firebase.initializeApp(firebaseConfig);

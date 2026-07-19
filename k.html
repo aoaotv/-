@@ -1026,112 +1026,81 @@
     }
 
 
-    function createPeerConnection(){
-      var PC=window.RTCPeerConnection||window.webkitRTCPeerConnection;
-      if(!PC) return null;
-      return new PC({iceServers:[
-        {urls:"stun:stun.l.google.com:19302"},
-        {urls:"stun:stun1.l.google.com:19302"}
-      ]});
+    var relayRecorder=null;
+    var relayStream=null;
+    var relayChunksRef=null;
+    var relayReceiveRef=null;
+    var relayAudioQueue=[];
+    var relayAudioPlaying=false;
+    var relayStartedAt=0;
+
+    function arrayBufferToBase64(buffer){
+      var bytes=new Uint8Array(buffer),binary="",i;
+      for(i=0;i<bytes.byteLength;i++) binary+=String.fromCharCode(bytes[i]);
+      return btoa(binary);
     }
 
-    function closePeerMap(map){
-      var key;
-      for(key in map){
-        if(map.hasOwnProperty(key)){
-          try{map[key].close();}catch(e){}
-        }
-      }
+    function base64ToBlob(base64,mime){
+      var binary=atob(base64),len=binary.length,bytes=new Uint8Array(len),i;
+      for(i=0;i<len;i++) bytes[i]=binary.charCodeAt(i);
+      return new Blob([bytes],{type:mime||"audio/webm"});
     }
 
-    function clearRemoteAudio(sessionId){
-      var box=byId("remoteAudioBox");
-      var items=box.querySelectorAll('[data-session="'+sessionId+'"]');
+    function chooseRecorderMime(){
+      var list=["audio/webm;codecs=opus","audio/webm","audio/mp4"];
       var i;
-      for(i=0;i<items.length;i++){
-        try{items[i].pause();}catch(e){}
-        if(items[i].parentNode) items[i].parentNode.removeChild(items[i]);
+      if(!window.MediaRecorder) return "";
+      for(i=0;i<list.length;i++){
+        try{if(!MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(list[i])) return list[i];}catch(e){}
       }
-      byId("liveReceiveBadge").className="liveReceiveBadge";
+      return "";
     }
 
     function startLiveBroadcastListener(){
       if(!liveBroadcastsRef) return;
-      liveBroadcastsRef.off("child_added");
-      liveBroadcastsRef.off("child_changed");
-      liveBroadcastsRef.off("child_removed");
-
-      function inspectSession(snap){
+      if(relayReceiveRef) relayReceiveRef.off();
+      relayReceiveRef=liveBroadcastsRef.child("relayChunks");
+      relayReceiveRef.limitToLast(10).on("child_added",function(snap){
         var data=snap.val()||{};
-        var sid=snap.key;
-        if(!data.active || data.senderId===deviceId) return;
-        prepareIncomingLiveSession(sid,data);
-      }
-      liveBroadcastsRef.on("child_added",inspectSession);
-      liveBroadcastsRef.on("child_changed",function(snap){
-        var data=snap.val()||{};
-        if(!data.active) stopIncomingLiveSession(snap.key);
-        else inspectSession(snap);
+        if(!data.base64||data.senderId===deviceId) return;
+        if(data.sentAt && data.sentAt < new Date().getTime()-15000) return;
+        queueRelayAudio(data);
       });
-      liveBroadcastsRef.on("child_removed",function(snap){stopIncomingLiveSession(snap.key);});
       liveBroadcastListenerReady=true;
     }
 
-    function prepareIncomingLiveSession(sessionId,data){
-      if(incomingLiveConnections[sessionId]) return;
-      var peerBase=liveBroadcastsRef.child(sessionId+"/peers/"+deviceId);
-      var offerRef=peerBase.child("offer");
-      var handled=false;
-      offerRef.on("value",function(snap){
-        var offer=snap.val();
-        if(!offer || handled) return;
-        handled=true;
-        offerRef.off();
-        answerIncomingLive(sessionId,data,peerBase,offer);
-      });
+    function queueRelayAudio(data){
+      try{
+        var blob=base64ToBlob(data.base64,data.mime);
+        var url=URL.createObjectURL(blob);
+        relayAudioQueue.push({url:url,senderName:data.senderName||"不明"});
+        playNextRelayAudio();
+      }catch(e){}
     }
 
-    function answerIncomingLive(sessionId,data,peerBase,offer){
-      var pc=createPeerConnection();
-      if(!pc){toast("このブラウザはリアルタイム放送に対応していません");return;}
-      incomingLiveConnections[sessionId]=pc;
-
-      pc.ontrack=function(event){
-        var stream=event.streams&&event.streams[0] ? event.streams[0] : null;
-        if(!stream) return;
-        var audio=document.createElement("audio");
-        audio.autoplay=true;
-        audio.setAttribute("playsinline","playsinline");
-        audio.setAttribute("data-session",sessionId);
-        audio.srcObject=stream;
-        byId("remoteAudioBox").appendChild(audio);
-        var promise=audio.play();
-        if(promise&&promise.catch) promise.catch(function(){toast("画面を一度押すと放送音声が流れます");});
-        byId("liveReceiveName").innerHTML=escapeHtml((data.senderName||"不明")+"から生放送中");
-        byId("liveReceiveBadge").className="liveReceiveBadge show";
-      };
-
-      pc.onicecandidate=function(event){
-        if(event.candidate) peerBase.child("answerCandidates").push(event.candidate.toJSON ? event.candidate.toJSON() : event.candidate);
-      };
-      peerBase.child("offerCandidates").on("child_added",function(snap){
-        var c=snap.val();
-        if(c) pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+    function playNextRelayAudio(){
+      if(relayAudioPlaying||relayAudioQueue.length===0) return;
+      relayAudioPlaying=true;
+      var item=relayAudioQueue.shift();
+      var audio=new Audio();
+      audio.autoplay=true;
+      audio.setAttribute("playsinline","playsinline");
+      audio.src=item.url;
+      byId("liveReceiveName").innerHTML=escapeHtml(item.senderName+"から放送中");
+      byId("liveReceiveBadge").className="liveReceiveBadge show";
+      function done(){
+        try{URL.revokeObjectURL(item.url);}catch(e){}
+        relayAudioPlaying=false;
+        if(relayAudioQueue.length===0) byId("liveReceiveBadge").className="liveReceiveBadge";
+        playNextRelayAudio();
+      }
+      audio.onended=done;
+      audio.onerror=done;
+      var promise=audio.play();
+      if(promise&&promise.catch) promise.catch(function(){
+        toast("画面を一度押すと放送音声が流れます");
+        done();
       });
-
-      pc.setRemoteDescription(new RTCSessionDescription(offer)).then(function(){
-        return pc.createAnswer();
-      }).then(function(answer){
-        return pc.setLocalDescription(answer).then(function(){
-          return peerBase.child("answer").set({type:answer.type,sdp:answer.sdp});
-        });
-      }).catch(function(){stopIncomingLiveSession(sessionId);});
-    }
-
-    function stopIncomingLiveSession(sessionId){
-      var pc=incomingLiveConnections[sessionId];
-      if(pc){try{pc.close();}catch(e){} delete incomingLiveConnections[sessionId];}
-      clearRemoteAudio(sessionId);
     }
 
     function toggleLiveBroadcast(){
@@ -1140,74 +1109,61 @@
 
     function startLiveBroadcast(){
       if(!room||!deviceName||!liveBroadcastsRef){toast("先に部屋へ接続して");return;}
-      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("このブラウザはマイク放送に対応していません");return;}
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){
+        toast("このブラウザはリアルタイム放送に対応していません");return;
+      }
       enableAudio();
       navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false}).then(function(stream){
-        liveLocalStream=stream;
+        var mime=chooseRecorderMime();
+        relayStream=stream;
+        relayChunksRef=liveBroadcastsRef.child("relayChunks");
+        try{relayRecorder=mime?new MediaRecorder(stream,{mimeType:mime,audioBitsPerSecond:24000}):new MediaRecorder(stream);}catch(e){relayRecorder=new MediaRecorder(stream);}
         liveBroadcasting=true;
-        liveSessionId="live-"+new Date().getTime()+"-"+Math.floor(Math.random()*100000);
-        liveSessionRef=liveBroadcastsRef.child(liveSessionId);
+        relayStartedAt=new Date().getTime();
         byId("liveBroadcastBtn").className="liveBroadcastBtn live";
         byId("liveBroadcastBtn").innerHTML="⏹ 放送停止";
-        toast("リアルタイム放送を開始した");
+        toast("放送開始（約1〜2秒遅延）");
 
-        liveSessionRef.set({active:true,senderId:deviceId,senderName:deviceName,startedAt:firebase.database.ServerValue.TIMESTAMP});
-        liveSessionRef.onDisconnect().remove();
-
-        db.ref("fireAlarmRooms/"+room+"/devices").once("value",function(snap){
-          var devices=snap.val()||{};
-          var targetId;
-          for(targetId in devices){
-            if(devices.hasOwnProperty(targetId)&&targetId!==deviceId) createOutgoingLivePeer(targetId,stream);
-          }
-        });
-      }).catch(function(){toast("マイクを許可してね");});
-    }
-
-    function createOutgoingLivePeer(targetId,stream){
-      var pc=createPeerConnection();
-      if(!pc) return;
-      livePeerConnections[targetId]=pc;
-      var peerBase=liveSessionRef.child("peers/"+targetId);
-      var tracks=stream.getTracks();
-      var i;
-      for(i=0;i<tracks.length;i++) pc.addTrack(tracks[i],stream);
-
-      pc.onicecandidate=function(event){
-        if(event.candidate) peerBase.child("offerCandidates").push(event.candidate.toJSON ? event.candidate.toJSON() : event.candidate);
-      };
-      peerBase.child("answer").on("value",function(snap){
-        var answer=snap.val();
-        if(answer&&!pc.currentRemoteDescription){pc.setRemoteDescription(new RTCSessionDescription(answer)).catch(function(){});}
+        relayRecorder.ondataavailable=function(ev){
+          if(!liveBroadcasting||!ev.data||ev.data.size<1) return;
+          var reader=new FileReader();
+          reader.onload=function(){
+            var b64=arrayBufferToBase64(reader.result);
+            var ref=relayChunksRef.push();
+            ref.set({
+              senderId:deviceId,
+              senderName:deviceName,
+              mime:ev.data.type||mime||"audio/webm",
+              base64:b64,
+              sentAt:firebase.database.ServerValue.TIMESTAMP
+            });
+            setTimeout(function(){ref.remove();},30000);
+          };
+          reader.readAsArrayBuffer(ev.data);
+        };
+        relayRecorder.onerror=function(){toast("放送中にエラーが起きた");stopLiveBroadcast();};
+        relayRecorder.start(1000);
+      }).catch(function(err){
+        if(location.protocol!=="https:"&&location.hostname!=="localhost"&&location.hostname!=="127.0.0.1"){
+          toast("マイクにはHTTPSで開く必要があります");
+        }else{
+          toast("マイクを許可してね");
+        }
       });
-      peerBase.child("answerCandidates").on("child_added",function(snap){
-        var c=snap.val();
-        if(c) pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
-      });
-
-      pc.createOffer().then(function(offer){
-        return pc.setLocalDescription(offer).then(function(){
-          return peerBase.child("offer").set({type:offer.type,sdp:offer.sdp});
-        });
-      }).catch(function(){});
     }
 
     function stopLiveBroadcast(){
       liveBroadcasting=false;
       byId("liveBroadcastBtn").className="liveBroadcastBtn";
       byId("liveBroadcastBtn").innerHTML="🎙 生放送";
-      closePeerMap(livePeerConnections);
-      livePeerConnections={};
-      if(liveLocalStream){
-        var tracks=liveLocalStream.getTracks();
-        var i;
+      if(relayRecorder){try{if(relayRecorder.state!=="inactive")relayRecorder.stop();}catch(e){}}
+      relayRecorder=null;
+      if(relayStream){
+        var tracks=relayStream.getTracks(),i;
         for(i=0;i<tracks.length;i++) try{tracks[i].stop();}catch(e){}
       }
-      liveLocalStream=null;
-      if(liveSessionRef){liveSessionRef.remove();}
-      liveSessionRef=null;
-      liveSessionId="";
-      toast("リアルタイム放送を停止した");
+      relayStream=null;
+      toast("放送を停止した");
     }
 
     function updateClock(){

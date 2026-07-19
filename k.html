@@ -137,6 +137,21 @@
       position:absolute;top:max(15px,env(safe-area-inset-top));left:20px;right:20px;
       display:flex;justify-content:space-between;font-size:14px;font-weight:800;opacity:.85
     }
+
+    .liveBroadcastBtn{
+      position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);
+      min-width:116px;height:64px;border-radius:32px;border:0;background:#ffffff;color:#111;
+      padding:0 18px;font-size:17px;font-weight:1000;box-shadow:0 10px 30px #0008;z-index:6
+    }
+    .liveBroadcastBtn.live{background:#e31818;color:#fff;animation:livePulse 1s infinite}
+    @keyframes livePulse{50%{box-shadow:0 0 0 12px #e3181833,0 10px 30px #0008}}
+    .liveReceiveBadge{
+      position:fixed;top:max(62px,calc(env(safe-area-inset-top) + 50px));left:50%;transform:translateX(-50%);
+      background:#e31818;color:#fff;border-radius:999px;padding:9px 16px;font-size:14px;font-weight:900;
+      z-index:999;display:none;box-shadow:0 8px 25px #0008
+    }
+    .liveReceiveBadge.show{display:block}
+    .remoteAudioBox{position:fixed;width:1px;height:1px;overflow:hidden;opacity:.01;pointer-events:none}
     .toast{
       position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);
       background:#fff;color:#111;padding:12px 18px;border-radius:999px;font-weight:800;
@@ -204,6 +219,7 @@
       <button id="reportBtn" class="reportBtn">火災<br>報告</button>
     </div>
     <button id="noticeOpenBtn" class="noticeOpenBtn" title="お知らせ送信">✉</button>
+    <button id="liveBroadcastBtn" class="liveBroadcastBtn" title="リアルタイム放送">🎙 生放送</button>
     <div class="footerNote">工作・試作用。実際の防災設備としては使用しないでください。</div>
   </section>
 
@@ -345,6 +361,8 @@
     </div>
   </section>
 
+  <div id="liveReceiveBadge" class="liveReceiveBadge">🔊 <span id="liveReceiveName">放送受信中</span></div>
+  <div id="remoteAudioBox" class="remoteAudioBox"></div>
   <div id="toast" class="toast"></div>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -390,6 +408,14 @@
     var quakeActive = false;
     var lastQuakeKey = localStorage.getItem("lastQuakeKey") || "";
     var screenBeforeQuake = "normalScreen";
+    var liveBroadcastsRef = null;
+    var liveBroadcastListenerReady = false;
+    var liveLocalStream = null;
+    var liveSessionId = "";
+    var liveSessionRef = null;
+    var livePeerConnections = {};
+    var incomingLiveConnections = {};
+    var liveBroadcasting = false;
     var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen","noticeSetupScreen","noticeDisplayScreen","quakeScreen"];
 
     function byId(id){ return document.getElementById(id); }
@@ -507,6 +533,7 @@
 
       alarmRef = db.ref("fireAlarmRooms/"+room+"/alarm");
       noticeRef = db.ref("fireAlarmRooms/"+room+"/notice");
+      liveBroadcastsRef = db.ref("fireAlarmRooms/"+room+"/liveBroadcasts");
       deviceRef = db.ref("fireAlarmRooms/"+room+"/devices/"+deviceId);
       deviceRef.set({name:deviceName,online:true,lastSeen:firebase.database.ServerValue.TIMESTAMP});
       deviceRef.onDisconnect().remove();
@@ -523,6 +550,8 @@
         var data=snap.val();
         if(data && data.active) showNotice(data);
       });
+
+      startLiveBroadcastListener();
 
       byId("deviceTitle").innerHTML=escapeHtml(deviceName);
       byId("roomText").innerHTML="部屋 "+escapeHtml(room);
@@ -996,6 +1025,191 @@
       }
     }
 
+
+    function createPeerConnection(){
+      var PC=window.RTCPeerConnection||window.webkitRTCPeerConnection;
+      if(!PC) return null;
+      return new PC({iceServers:[
+        {urls:"stun:stun.l.google.com:19302"},
+        {urls:"stun:stun1.l.google.com:19302"}
+      ]});
+    }
+
+    function closePeerMap(map){
+      var key;
+      for(key in map){
+        if(map.hasOwnProperty(key)){
+          try{map[key].close();}catch(e){}
+        }
+      }
+    }
+
+    function clearRemoteAudio(sessionId){
+      var box=byId("remoteAudioBox");
+      var items=box.querySelectorAll('[data-session="'+sessionId+'"]');
+      var i;
+      for(i=0;i<items.length;i++){
+        try{items[i].pause();}catch(e){}
+        if(items[i].parentNode) items[i].parentNode.removeChild(items[i]);
+      }
+      byId("liveReceiveBadge").className="liveReceiveBadge";
+    }
+
+    function startLiveBroadcastListener(){
+      if(!liveBroadcastsRef) return;
+      liveBroadcastsRef.off("child_added");
+      liveBroadcastsRef.off("child_changed");
+      liveBroadcastsRef.off("child_removed");
+
+      function inspectSession(snap){
+        var data=snap.val()||{};
+        var sid=snap.key;
+        if(!data.active || data.senderId===deviceId) return;
+        prepareIncomingLiveSession(sid,data);
+      }
+      liveBroadcastsRef.on("child_added",inspectSession);
+      liveBroadcastsRef.on("child_changed",function(snap){
+        var data=snap.val()||{};
+        if(!data.active) stopIncomingLiveSession(snap.key);
+        else inspectSession(snap);
+      });
+      liveBroadcastsRef.on("child_removed",function(snap){stopIncomingLiveSession(snap.key);});
+      liveBroadcastListenerReady=true;
+    }
+
+    function prepareIncomingLiveSession(sessionId,data){
+      if(incomingLiveConnections[sessionId]) return;
+      var peerBase=liveBroadcastsRef.child(sessionId+"/peers/"+deviceId);
+      var offerRef=peerBase.child("offer");
+      var handled=false;
+      offerRef.on("value",function(snap){
+        var offer=snap.val();
+        if(!offer || handled) return;
+        handled=true;
+        offerRef.off();
+        answerIncomingLive(sessionId,data,peerBase,offer);
+      });
+    }
+
+    function answerIncomingLive(sessionId,data,peerBase,offer){
+      var pc=createPeerConnection();
+      if(!pc){toast("このブラウザはリアルタイム放送に対応していません");return;}
+      incomingLiveConnections[sessionId]=pc;
+
+      pc.ontrack=function(event){
+        var stream=event.streams&&event.streams[0] ? event.streams[0] : null;
+        if(!stream) return;
+        var audio=document.createElement("audio");
+        audio.autoplay=true;
+        audio.setAttribute("playsinline","playsinline");
+        audio.setAttribute("data-session",sessionId);
+        audio.srcObject=stream;
+        byId("remoteAudioBox").appendChild(audio);
+        var promise=audio.play();
+        if(promise&&promise.catch) promise.catch(function(){toast("画面を一度押すと放送音声が流れます");});
+        byId("liveReceiveName").innerHTML=escapeHtml((data.senderName||"不明")+"から生放送中");
+        byId("liveReceiveBadge").className="liveReceiveBadge show";
+      };
+
+      pc.onicecandidate=function(event){
+        if(event.candidate) peerBase.child("answerCandidates").push(event.candidate.toJSON ? event.candidate.toJSON() : event.candidate);
+      };
+      peerBase.child("offerCandidates").on("child_added",function(snap){
+        var c=snap.val();
+        if(c) pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+      });
+
+      pc.setRemoteDescription(new RTCSessionDescription(offer)).then(function(){
+        return pc.createAnswer();
+      }).then(function(answer){
+        return pc.setLocalDescription(answer).then(function(){
+          return peerBase.child("answer").set({type:answer.type,sdp:answer.sdp});
+        });
+      }).catch(function(){stopIncomingLiveSession(sessionId);});
+    }
+
+    function stopIncomingLiveSession(sessionId){
+      var pc=incomingLiveConnections[sessionId];
+      if(pc){try{pc.close();}catch(e){} delete incomingLiveConnections[sessionId];}
+      clearRemoteAudio(sessionId);
+    }
+
+    function toggleLiveBroadcast(){
+      if(liveBroadcasting) stopLiveBroadcast(); else startLiveBroadcast();
+    }
+
+    function startLiveBroadcast(){
+      if(!room||!deviceName||!liveBroadcastsRef){toast("先に部屋へ接続して");return;}
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("このブラウザはマイク放送に対応していません");return;}
+      enableAudio();
+      navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false}).then(function(stream){
+        liveLocalStream=stream;
+        liveBroadcasting=true;
+        liveSessionId="live-"+new Date().getTime()+"-"+Math.floor(Math.random()*100000);
+        liveSessionRef=liveBroadcastsRef.child(liveSessionId);
+        byId("liveBroadcastBtn").className="liveBroadcastBtn live";
+        byId("liveBroadcastBtn").innerHTML="⏹ 放送停止";
+        toast("リアルタイム放送を開始した");
+
+        liveSessionRef.set({active:true,senderId:deviceId,senderName:deviceName,startedAt:firebase.database.ServerValue.TIMESTAMP});
+        liveSessionRef.onDisconnect().remove();
+
+        db.ref("fireAlarmRooms/"+room+"/devices").once("value",function(snap){
+          var devices=snap.val()||{};
+          var targetId;
+          for(targetId in devices){
+            if(devices.hasOwnProperty(targetId)&&targetId!==deviceId) createOutgoingLivePeer(targetId,stream);
+          }
+        });
+      }).catch(function(){toast("マイクを許可してね");});
+    }
+
+    function createOutgoingLivePeer(targetId,stream){
+      var pc=createPeerConnection();
+      if(!pc) return;
+      livePeerConnections[targetId]=pc;
+      var peerBase=liveSessionRef.child("peers/"+targetId);
+      var tracks=stream.getTracks();
+      var i;
+      for(i=0;i<tracks.length;i++) pc.addTrack(tracks[i],stream);
+
+      pc.onicecandidate=function(event){
+        if(event.candidate) peerBase.child("offerCandidates").push(event.candidate.toJSON ? event.candidate.toJSON() : event.candidate);
+      };
+      peerBase.child("answer").on("value",function(snap){
+        var answer=snap.val();
+        if(answer&&!pc.currentRemoteDescription){pc.setRemoteDescription(new RTCSessionDescription(answer)).catch(function(){});}
+      });
+      peerBase.child("answerCandidates").on("child_added",function(snap){
+        var c=snap.val();
+        if(c) pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+      });
+
+      pc.createOffer().then(function(offer){
+        return pc.setLocalDescription(offer).then(function(){
+          return peerBase.child("offer").set({type:offer.type,sdp:offer.sdp});
+        });
+      }).catch(function(){});
+    }
+
+    function stopLiveBroadcast(){
+      liveBroadcasting=false;
+      byId("liveBroadcastBtn").className="liveBroadcastBtn";
+      byId("liveBroadcastBtn").innerHTML="🎙 生放送";
+      closePeerMap(livePeerConnections);
+      livePeerConnections={};
+      if(liveLocalStream){
+        var tracks=liveLocalStream.getTracks();
+        var i;
+        for(i=0;i<tracks.length;i++) try{tracks[i].stop();}catch(e){}
+      }
+      liveLocalStream=null;
+      if(liveSessionRef){liveSessionRef.remove();}
+      liveSessionRef=null;
+      liveSessionId="";
+      toast("リアルタイム放送を停止した");
+    }
+
     function updateClock(){
       var now=new Date();
       var hh=("0"+now.getHours()).slice(-2);
@@ -1032,6 +1246,7 @@
       bindPress("backToAlarm",function(){showScreen("alarmScreen");});
       bindPress("clearPin",function(){pin="";updatePin();});
       bindPress("noticeOpenBtn",function(){enableAudio();showScreen("noticeSetupScreen");});
+      bindPress("liveBroadcastBtn",toggleLiveBroadcast);
       byId("noticeImageInput").addEventListener("change",function(){
         prepareNoticeImage(this.files && this.files[0] ? this.files[0] : null);
       },false);
@@ -1043,6 +1258,10 @@
       bindPress("sendVoiceOnlyBtn",sendVoiceOnly);
       bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){
+        stopLiveBroadcast();
+        closePeerMap(incomingLiveConnections);
+        incomingLiveConnections={};
+        if(liveBroadcastsRef) liveBroadcastsRef.off();
         if(deviceRef) deviceRef.remove();
         if(alarmRef) alarmRef.off();
         if(noticeRef) noticeRef.off();
@@ -1072,6 +1291,7 @@
       }
 
       document.addEventListener("visibilitychange",function(){if(!document.hidden&&alarmActive)startSiren();},false);
+      window.addEventListener("beforeunload",function(){if(liveBroadcasting)stopLiveBroadcast();},false);
     }
 
     if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,false); else init();

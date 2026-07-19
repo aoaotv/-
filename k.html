@@ -898,10 +898,20 @@
     }
 
     function showNotice(data){
-      if(alarmActive) return;
       var id=String(data.id||data.sentAt||"");
       if(id && currentNoticeId===id) return;
       currentNoticeId=id;
+
+      /* 声だけ送信は、現在の画面を一切変更せず音だけ再生する */
+      if(data.voiceOnly && data.audioBase64){
+        playChime();
+        setTimeout(function(){
+          playReceivedAudio(data.audioBase64,data.audioMime);
+        },750);
+        return;
+      }
+
+      if(alarmActive) return;
 
       if(noticeTimer) clearTimeout(noticeTimer);
       if(noticeCountdownTimer) clearInterval(noticeCountdownTimer);
@@ -919,8 +929,8 @@
       screen.style.setProperty("--image-shade",String(data.imageShade||"0"));
       if(data.imageBase64) screen.classList.add("hasImage");
       else screen.classList.remove("hasImage");
-      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.voiceOnly ? "音声メッセージ" : (data.title||""));
-      byId("noticeDisplayDetail").innerHTML=escapeHtml(data.voiceOnly ? "" : (data.detail||""));
+      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.title||"");
+      byId("noticeDisplayDetail").innerHTML=escapeHtml(data.detail||"");
       byId("noticeSender").innerHTML="送信元："+escapeHtml(data.senderName||"不明");
       byId("noticeRemain").innerHTML=seconds+"秒";
 

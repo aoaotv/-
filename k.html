@@ -308,7 +308,8 @@
         <span>受信した端末で読み上げる</span>
       </label>
 
-      <button id="sendNoticeBtn" class="primary">この部屋へ送信</button>
+      <button id="sendVoiceOnlyBtn" class="primary">🎤 録音した声だけ送信</button>
+      <button id="sendNoticeBtn" class="secondary">文字・画像なども一緒に送信</button>
       <button id="cancelNoticeBtn" class="secondary">戻る</button>
     </div>
   </section>
@@ -826,6 +827,39 @@
       }catch(e){}
     }
 
+
+    function sendVoiceOnly(){
+      if(!noticeRef){ toast("部屋に接続していません"); return; }
+      if(!noticeAudioBase64){ toast("先に録音して"); return; }
+      enableAudio();
+      noticeRef.set({
+        active:true,
+        id:"voice-"+new Date().getTime()+"-"+Math.floor(Math.random()*100000),
+        title:"",
+        detail:"",
+        background:"#111111",
+        textColor:"#ffffff",
+        imageBase64:"",
+        imageFit:"cover",
+        imageShade:"0",
+        audioBase64:noticeAudioBase64,
+        audioMime:noticeAudioMime||"audio/webm",
+        seconds:25,
+        speech:false,
+        voiceOnly:true,
+        senderName:deviceName,
+        senderId:deviceId,
+        sentAt:firebase.database.ServerValue.TIMESTAMP
+      },function(error){
+        if(error) toast("音声を送信できなかった");
+        else {
+          clearRecording();
+          showScreen("normalScreen");
+          toast("録音した声を送信した");
+        }
+      });
+    }
+
     function sendNotice(){
       if(!noticeRef){ toast("部屋に接続していません"); return; }
       var title=String(byId("noticeTitleInput").value).replace(/^\s+|\s+$/g,"");
@@ -885,8 +919,8 @@
       screen.style.setProperty("--image-shade",String(data.imageShade||"0"));
       if(data.imageBase64) screen.classList.add("hasImage");
       else screen.classList.remove("hasImage");
-      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.title||"");
-      byId("noticeDisplayDetail").innerHTML=escapeHtml(data.detail||"");
+      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.voiceOnly ? "音声メッセージ" : (data.title||""));
+      byId("noticeDisplayDetail").innerHTML=escapeHtml(data.voiceOnly ? "" : (data.detail||""));
       byId("noticeSender").innerHTML="送信元："+escapeHtml(data.senderName||"不明");
       byId("noticeRemain").innerHTML=seconds+"秒";
 
@@ -979,6 +1013,7 @@
       bindPress("stopRecordBtn",stopRecording);
       bindPress("removeRecordBtn",clearRecording);
       bindPress("cancelNoticeBtn",function(){showScreen("normalScreen");});
+      bindPress("sendVoiceOnlyBtn",sendVoiceOnly);
       bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){
         if(deviceRef) deviceRef.remove();

@@ -189,7 +189,7 @@
 
   <section id="setupScreen" class="screen active">
     <div class="card">
-      <h1>連動火災警報パネル</h1>
+      <h1>連動火災警報のパネル</h1>
       <p class="sub">同じ部屋番号を設定した端末どうしで警報を連動します。</p>
 
       <label for="roomInput">部屋番号</label>
@@ -1026,81 +1026,222 @@
     }
 
 
-    var relayRecorder=null;
-    var relayStream=null;
-    var relayChunksRef=null;
-    var relayReceiveRef=null;
-    var relayAudioQueue=[];
-    var relayAudioPlaying=false;
-    var relayStartedAt=0;
-
-    function arrayBufferToBase64(buffer){
-      var bytes=new Uint8Array(buffer),binary="",i;
-      for(i=0;i<bytes.byteLength;i++) binary+=String.fromCharCode(bytes[i]);
-      return btoa(binary);
+    function createPeerConnection(){
+      var PC=window.RTCPeerConnection||window.webkitRTCPeerConnection;
+      if(!PC) return null;
+      return new PC({
+        iceServers:[
+          {urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302","stun:stun2.l.google.com:19302"]}
+        ],
+        iceCandidatePoolSize:10
+      });
     }
 
-    function base64ToBlob(base64,mime){
-      var binary=atob(base64),len=binary.length,bytes=new Uint8Array(len),i;
-      for(i=0;i<len;i++) bytes[i]=binary.charCodeAt(i);
-      return new Blob([bytes],{type:mime||"audio/webm"});
-    }
-
-    function chooseRecorderMime(){
-      var list=["audio/webm;codecs=opus","audio/webm","audio/mp4"];
-      var i;
-      if(!window.MediaRecorder) return "";
-      for(i=0;i<list.length;i++){
-        try{if(!MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(list[i])) return list[i];}catch(e){}
+    function closePeerMap(map){
+      var key;
+      for(key in map){
+        if(map.hasOwnProperty(key)){
+          try{map[key].close();}catch(e){}
+        }
       }
-      return "";
+    }
+
+    function addCandidateSafely(pc,candidate,queue){
+      if(!candidate) return;
+      if(pc.remoteDescription && pc.remoteDescription.type){
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(function(){});
+      }else{
+        queue.push(candidate);
+      }
+    }
+
+    function flushCandidateQueue(pc,queue){
+      while(queue.length){
+        try{pc.addIceCandidate(new RTCIceCandidate(queue.shift())).catch(function(){});}catch(e){}
+      }
+    }
+
+    function clearRemoteAudio(sessionId){
+      var box=byId("remoteAudioBox");
+      var items=box.querySelectorAll('[data-session="'+sessionId+'"]');
+      var i;
+      for(i=0;i<items.length;i++){
+        try{items[i].pause();}catch(e){}
+        try{
+          if(items[i]._audioSource) items[i]._audioSource.disconnect();
+        }catch(e){}
+        if(items[i].parentNode) items[i].parentNode.removeChild(items[i]);
+      }
+      byId("liveReceiveBadge").className="liveReceiveBadge";
+    }
+
+    function playRemoteStream(sessionId,stream,senderName){
+      clearRemoteAudio(sessionId);
+
+      var audio=document.createElement("audio");
+      audio.autoplay=true;
+      audio.playsInline=true;
+      audio.setAttribute("playsinline","playsinline");
+      audio.setAttribute("data-session",sessionId);
+      audio.srcObject=stream;
+      byId("remoteAudioBox").appendChild(audio);
+
+      /* AudioContext経由も使い、スマホの自動再生失敗を減らす */
+      try{
+        if(audioCtx){
+          if(audioCtx.state==="suspended") audioCtx.resume();
+          var source=audioCtx.createMediaStreamSource(stream);
+          source.connect(audioCtx.destination);
+          audio._audioSource=source;
+        }
+      }catch(e){}
+
+      var p=audio.play();
+      if(p&&p.catch){
+        p.catch(function(){
+          toast("一度画面を押すと放送が聞こえます");
+          var resume=function(){
+            audio.play().catch(function(){});
+            try{if(audioCtx&&audioCtx.state==="suspended") audioCtx.resume();}catch(e){}
+            document.removeEventListener("click",resume,true);
+            document.removeEventListener("touchend",resume,true);
+          };
+          document.addEventListener("click",resume,true);
+          document.addEventListener("touchend",resume,true);
+        });
+      }
+
+      byId("liveReceiveName").innerHTML=escapeHtml((senderName||"不明")+"から生放送中");
+      byId("liveReceiveBadge").className="liveReceiveBadge show";
     }
 
     function startLiveBroadcastListener(){
       if(!liveBroadcastsRef) return;
-      if(relayReceiveRef) relayReceiveRef.off();
-      relayReceiveRef=liveBroadcastsRef.child("relayChunks");
-      relayReceiveRef.limitToLast(10).on("child_added",function(snap){
+      liveBroadcastsRef.off();
+
+      function inspectSession(snap){
         var data=snap.val()||{};
-        if(!data.base64||data.senderId===deviceId) return;
-        if(data.sentAt && data.sentAt < new Date().getTime()-15000) return;
-        queueRelayAudio(data);
+        var sid=snap.key;
+        if(!data.active || data.senderId===deviceId) return;
+        prepareIncomingLiveSession(sid,data);
+      }
+
+      liveBroadcastsRef.on("child_added",inspectSession);
+      liveBroadcastsRef.on("child_changed",function(snap){
+        var data=snap.val()||{};
+        if(!data.active) stopIncomingLiveSession(snap.key);
+        else inspectSession(snap);
+      });
+      liveBroadcastsRef.on("child_removed",function(snap){
+        stopIncomingLiveSession(snap.key);
       });
       liveBroadcastListenerReady=true;
     }
 
-    function queueRelayAudio(data){
-      try{
-        var blob=base64ToBlob(data.base64,data.mime);
-        var url=URL.createObjectURL(blob);
-        relayAudioQueue.push({url:url,senderName:data.senderName||"不明"});
-        playNextRelayAudio();
-      }catch(e){}
+    function prepareIncomingLiveSession(sessionId,data){
+      if(incomingLiveConnections[sessionId]) return;
+
+      var sessionRef=liveBroadcastsRef.child(sessionId);
+      var participantRef=sessionRef.child("participants/"+deviceId);
+      var peerBase=sessionRef.child("peers/"+deviceId);
+      var offerRef=peerBase.child("offer");
+
+      /* 受信端末が準備できたことを送信側へ知らせる */
+      participantRef.set({
+        ready:true,
+        name:deviceName,
+        joinedAt:firebase.database.ServerValue.TIMESTAMP
+      });
+      participantRef.onDisconnect().remove();
+
+      incomingLiveConnections[sessionId]={
+        pc:null,
+        participantRef:participantRef,
+        peerBase:peerBase,
+        offerListener:null,
+        senderName:data.senderName||"不明"
+      };
+
+      var handledOfferId="";
+      var offerListener=function(snap){
+        var offer=snap.val();
+        if(!offer || !offer.sdp) return;
+        var offerId=offer.offerId||offer.sdp;
+        if(handledOfferId===offerId) return;
+        handledOfferId=offerId;
+        answerIncomingLive(sessionId,data,peerBase,offer);
+      };
+      incomingLiveConnections[sessionId].offerListener=offerListener;
+      offerRef.on("value",offerListener);
     }
 
-    function playNextRelayAudio(){
-      if(relayAudioPlaying||relayAudioQueue.length===0) return;
-      relayAudioPlaying=true;
-      var item=relayAudioQueue.shift();
-      var audio=new Audio();
-      audio.autoplay=true;
-      audio.setAttribute("playsinline","playsinline");
-      audio.src=item.url;
-      byId("liveReceiveName").innerHTML=escapeHtml(item.senderName+"から放送中");
-      byId("liveReceiveBadge").className="liveReceiveBadge show";
-      function done(){
-        try{URL.revokeObjectURL(item.url);}catch(e){}
-        relayAudioPlaying=false;
-        if(relayAudioQueue.length===0) byId("liveReceiveBadge").className="liveReceiveBadge";
-        playNextRelayAudio();
-      }
-      audio.onended=done;
-      audio.onerror=done;
-      var promise=audio.play();
-      if(promise&&promise.catch) promise.catch(function(){
-        toast("画面を一度押すと放送音声が流れます");
-        done();
+    function answerIncomingLive(sessionId,data,peerBase,offer){
+      var state=incomingLiveConnections[sessionId];
+      if(!state) return;
+
+      if(state.pc){try{state.pc.close();}catch(e){}}
+      var pc=createPeerConnection();
+      if(!pc){toast("このブラウザはリアルタイム放送に対応していません");return;}
+      state.pc=pc;
+
+      var remoteCandidates=[];
+      var candidateRef=peerBase.child("offerCandidates");
+      candidateRef.off();
+      candidateRef.on("child_added",function(snap){
+        addCandidateSafely(pc,snap.val(),remoteCandidates);
       });
+
+      pc.ontrack=function(event){
+        var stream=event.streams&&event.streams[0] ? event.streams[0] : null;
+        if(stream) playRemoteStream(sessionId,stream,data.senderName);
+      };
+
+      pc.onicecandidate=function(event){
+        if(event.candidate){
+          peerBase.child("answerCandidates").push(
+            event.candidate.toJSON ? event.candidate.toJSON() : event.candidate
+          );
+        }
+      };
+
+      pc.onconnectionstatechange=function(){
+        if(pc.connectionState==="failed"){
+          peerBase.child("retry").set(firebase.database.ServerValue.TIMESTAMP);
+        }
+      };
+
+      pc.setRemoteDescription(new RTCSessionDescription({
+        type:offer.type,
+        sdp:offer.sdp
+      })).then(function(){
+        flushCandidateQueue(pc,remoteCandidates);
+        return pc.createAnswer();
+      }).then(function(answer){
+        return pc.setLocalDescription(answer);
+      }).then(function(){
+        return peerBase.child("answer").set({
+          type:pc.localDescription.type,
+          sdp:pc.localDescription.sdp,
+          answerId:"answer-"+new Date().getTime()
+        });
+      }).catch(function(){
+        toast("放送への接続をやり直しています");
+        peerBase.child("retry").set(firebase.database.ServerValue.TIMESTAMP);
+      });
+    }
+
+    function stopIncomingLiveSession(sessionId){
+      var state=incomingLiveConnections[sessionId];
+      if(state){
+        try{
+          if(state.offerListener) state.peerBase.child("offer").off("value",state.offerListener);
+          state.peerBase.off();
+          if(state.participantRef) state.participantRef.remove();
+          if(state.pc) state.pc.close();
+        }catch(e){}
+        delete incomingLiveConnections[sessionId];
+      }
+      clearRemoteAudio(sessionId);
     }
 
     function toggleLiveBroadcast(){
@@ -1108,47 +1249,151 @@
     }
 
     function startLiveBroadcast(){
-      if(!room||!deviceName||!liveBroadcastsRef){toast("先に部屋へ接続して");return;}
-      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){
-        toast("このブラウザはリアルタイム放送に対応していません");return;
+      if(!room||!deviceName||!liveBroadcastsRef){
+        toast("先に部屋へ接続して");
+        return;
       }
+      if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+        toast("HTTPSで開いて、マイクを許可してね");
+        return;
+      }
+
       enableAudio();
-      navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false}).then(function(stream){
-        var mime=chooseRecorderMime();
-        relayStream=stream;
-        relayChunksRef=liveBroadcastsRef.child("relayChunks");
-        try{relayRecorder=mime?new MediaRecorder(stream,{mimeType:mime,audioBitsPerSecond:24000}):new MediaRecorder(stream);}catch(e){relayRecorder=new MediaRecorder(stream);}
+      navigator.mediaDevices.getUserMedia({
+        audio:{
+          echoCancellation:true,
+          noiseSuppression:true,
+          autoGainControl:true,
+          channelCount:1
+        },
+        video:false
+      }).then(function(stream){
+        liveLocalStream=stream;
         liveBroadcasting=true;
-        relayStartedAt=new Date().getTime();
+        liveSessionId="live-"+new Date().getTime()+"-"+Math.floor(Math.random()*100000);
+        liveSessionRef=liveBroadcastsRef.child(liveSessionId);
+
         byId("liveBroadcastBtn").className="liveBroadcastBtn live";
         byId("liveBroadcastBtn").innerHTML="⏹ 放送停止";
-        toast("放送開始（約1〜2秒遅延）");
 
-        relayRecorder.ondataavailable=function(ev){
-          if(!liveBroadcasting||!ev.data||ev.data.size<1) return;
-          var reader=new FileReader();
-          reader.onload=function(){
-            var b64=arrayBufferToBase64(reader.result);
-            var ref=relayChunksRef.push();
-            ref.set({
-              senderId:deviceId,
-              senderName:deviceName,
-              mime:ev.data.type||mime||"audio/webm",
-              base64:b64,
-              sentAt:firebase.database.ServerValue.TIMESTAMP
-            });
-            setTimeout(function(){ref.remove();},30000);
-          };
-          reader.readAsArrayBuffer(ev.data);
-        };
-        relayRecorder.onerror=function(){toast("放送中にエラーが起きた");stopLiveBroadcast();};
-        relayRecorder.start(1000);
+        return liveSessionRef.set({
+          active:true,
+          senderId:deviceId,
+          senderName:deviceName,
+          startedAt:firebase.database.ServerValue.TIMESTAMP
+        }).then(function(){
+          liveSessionRef.onDisconnect().remove();
+
+          /* 途中参加も含め、受信端末が現れたら接続を作る */
+          liveSessionRef.child("participants").on("child_added",function(snap){
+            var targetId=snap.key;
+            if(targetId!==deviceId) createOutgoingLivePeer(targetId,stream);
+          });
+          liveSessionRef.child("participants").on("child_changed",function(snap){
+            var targetId=snap.key;
+            if(targetId!==deviceId && !livePeerConnections[targetId]){
+              createOutgoingLivePeer(targetId,stream);
+            }
+          });
+
+          toast("リアルタイム放送を開始した");
+        });
       }).catch(function(err){
-        if(location.protocol!=="https:"&&location.hostname!=="localhost"&&location.hostname!=="127.0.0.1"){
-          toast("マイクにはHTTPSで開く必要があります");
-        }else{
-          toast("マイクを許可してね");
+        var msg="マイクを許可してね";
+        if(location.protocol!=="https:" && location.hostname!=="localhost"){
+          msg="マイクにはHTTPSが必要";
         }
+        toast(msg);
+      });
+    }
+
+    function createOutgoingLivePeer(targetId,stream){
+      if(!liveBroadcasting || !liveSessionRef) return;
+
+      if(livePeerConnections[targetId]){
+        try{livePeerConnections[targetId].pc.close();}catch(e){}
+        try{livePeerConnections[targetId].peerBase.off();}catch(e){}
+      }
+
+      var pc=createPeerConnection();
+      if(!pc) return;
+
+      var peerBase=liveSessionRef.child("peers/"+targetId);
+      var state={
+        pc:pc,
+        peerBase:peerBase,
+        remoteCandidates:[],
+        retrying:false
+      };
+      livePeerConnections[targetId]=state;
+
+      peerBase.remove().then(function(){
+        var tracks=stream.getTracks();
+        var i;
+        for(i=0;i<tracks.length;i++) pc.addTrack(tracks[i],stream);
+
+        pc.onicecandidate=function(event){
+          if(event.candidate){
+            peerBase.child("offerCandidates").push(
+              event.candidate.toJSON ? event.candidate.toJSON() : event.candidate
+            );
+          }
+        };
+
+        peerBase.child("answerCandidates").on("child_added",function(snap){
+          addCandidateSafely(pc,snap.val(),state.remoteCandidates);
+        });
+
+        peerBase.child("answer").on("value",function(snap){
+          var answer=snap.val();
+          if(!answer || !answer.sdp || pc.remoteDescription) return;
+          pc.setRemoteDescription(new RTCSessionDescription({
+            type:answer.type,
+            sdp:answer.sdp
+          })).then(function(){
+            flushCandidateQueue(pc,state.remoteCandidates);
+          }).catch(function(){});
+        });
+
+        peerBase.child("retry").on("value",function(snap){
+          if(!snap.val() || state.retrying || !liveBroadcasting) return;
+          state.retrying=true;
+          setTimeout(function(){
+            state.retrying=false;
+            if(liveBroadcasting) createOutgoingLivePeer(targetId,stream);
+          },500);
+        });
+
+        pc.onconnectionstatechange=function(){
+          if(pc.connectionState==="connected"){
+            toast("受信端末に接続した");
+          }else if(pc.connectionState==="failed" || pc.connectionState==="disconnected"){
+            if(!state.retrying && liveBroadcasting){
+              state.retrying=true;
+              setTimeout(function(){
+                state.retrying=false;
+                if(liveBroadcasting) createOutgoingLivePeer(targetId,stream);
+              },1000);
+            }
+          }
+        };
+
+        pc.createOffer({
+          offerToReceiveAudio:false,
+          offerToReceiveVideo:false
+        }).then(function(offer){
+          return pc.setLocalDescription(offer);
+        }).then(function(){
+          return peerBase.child("offer").set({
+            type:pc.localDescription.type,
+            sdp:pc.localDescription.sdp,
+            offerId:"offer-"+new Date().getTime()
+          });
+        }).catch(function(){
+          if(liveBroadcasting){
+            setTimeout(function(){createOutgoingLivePeer(targetId,stream);},1000);
+          }
+        });
       });
     }
 
@@ -1156,14 +1401,32 @@
       liveBroadcasting=false;
       byId("liveBroadcastBtn").className="liveBroadcastBtn";
       byId("liveBroadcastBtn").innerHTML="🎙 生放送";
-      if(relayRecorder){try{if(relayRecorder.state!=="inactive")relayRecorder.stop();}catch(e){}}
-      relayRecorder=null;
-      if(relayStream){
-        var tracks=relayStream.getTracks(),i;
-        for(i=0;i<tracks.length;i++) try{tracks[i].stop();}catch(e){}
+
+      var key;
+      for(key in livePeerConnections){
+        if(livePeerConnections.hasOwnProperty(key)){
+          try{livePeerConnections[key].peerBase.off();}catch(e){}
+          try{livePeerConnections[key].pc.close();}catch(e){}
+        }
       }
-      relayStream=null;
-      toast("放送を停止した");
+      livePeerConnections={};
+
+      if(liveLocalStream){
+        var tracks=liveLocalStream.getTracks();
+        var i;
+        for(i=0;i<tracks.length;i++){
+          try{tracks[i].stop();}catch(e){}
+        }
+      }
+      liveLocalStream=null;
+
+      if(liveSessionRef){
+        try{liveSessionRef.child("participants").off();}catch(e){}
+        liveSessionRef.remove();
+      }
+      liveSessionRef=null;
+      liveSessionId="";
+      toast("リアルタイム放送を停止した");
     }
 
     function updateClock(){
@@ -1215,7 +1478,10 @@
       bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){
         stopLiveBroadcast();
-        closePeerMap(incomingLiveConnections);
+        var liveKey;
+        for(liveKey in incomingLiveConnections){
+          if(incomingLiveConnections.hasOwnProperty(liveKey)) stopIncomingLiveSession(liveKey);
+        }
         incomingLiveConnections={};
         if(liveBroadcastsRef) liveBroadcastsRef.off();
         if(deviceRef) deviceRef.remove();

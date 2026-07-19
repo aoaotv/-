@@ -34,6 +34,12 @@
     input:focus,textarea:focus,select:focus{border-color:#777}
     textarea{min-height:110px;resize:vertical}
     input[type="color"]{height:58px;padding:6px}
+    input[type="file"]{padding:11px}
+    .imagePreview{
+      width:100%;max-height:220px;object-fit:contain;background:#09090b;
+      border:1px solid #3a3a43;border-radius:14px;margin-top:10px;display:none
+    }
+    .imageHelp{color:var(--muted);font-size:12px;line-height:1.5;margin-top:7px}
     .primary,.secondary,.danger,.cancel{
       width:100%;border:0;border-radius:16px;padding:16px;font-weight:800;font-size:18px;cursor:pointer
     }
@@ -108,8 +114,14 @@
     }
     .checkRow input{width:24px;height:24px;margin:0}
     .noticeDisplay{
-      flex-direction:column;text-align:center;padding:35px;color:#fff
+      flex-direction:column;text-align:center;padding:35px;color:#fff;
+      background-position:center;background-repeat:no-repeat;background-size:cover
     }
+    .noticeDisplay.hasImage:before{
+      content:"";position:absolute;inset:0;background:rgba(0,0,0,var(--image-shade,.18));
+      pointer-events:none
+    }
+    .noticeDisplayTitle,.noticeDisplayDetail,.noticeMeta{z-index:1;position:relative}
     .noticeDisplayTitle{
       font-size:clamp(38px,10vw,90px);font-weight:1000;line-height:1.1;
       margin:0 0 25px;max-width:95vw;word-break:break-word
@@ -220,6 +232,12 @@
       <label for="noticeDetailInput">詳細</label>
       <textarea id="noticeDetailInput" maxlength="500" placeholder="例：1階のリビングへ集合してください。"></textarea>
 
+      <label for="noticeImageInput">全画面画像（任意）</label>
+      <input id="noticeImageInput" type="file" accept="image/*">
+      <img id="noticeImagePreview" class="imagePreview" alt="選択画像プレビュー">
+      <div id="imageHelp" class="imageHelp">画像は送信前に自動で縮小・圧縮し、Base64として送信します。</div>
+      <button id="removeNoticeImageBtn" class="secondary" type="button" style="display:none">画像を削除</button>
+
       <div class="formRow">
         <div>
           <label for="noticeSeconds">表示時間（秒）</label>
@@ -230,6 +248,25 @@
           <select id="noticeTextColor">
             <option value="#ffffff">白</option>
             <option value="#000000">黒</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="formRow">
+        <div>
+          <label for="noticeImageFit">画像の表示</label>
+          <select id="noticeImageFit">
+            <option value="cover">画面いっぱい</option>
+            <option value="contain">画像全体を表示</option>
+          </select>
+        </div>
+        <div>
+          <label for="noticeImageShade">文字用の暗さ</label>
+          <select id="noticeImageShade">
+            <option value="0">暗くしない</option>
+            <option value="0.18" selected>少し暗くする</option>
+            <option value="0.35">暗くする</option>
+            <option value="0.55">かなり暗くする</option>
           </select>
         </div>
       </div>
@@ -286,6 +323,7 @@
     var noticeTimer = null;
     var noticeCountdownTimer = null;
     var currentNoticeId = "";
+    var noticeImageBase64 = "";
     var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen","noticeSetupScreen","noticeDisplayScreen"];
 
     function byId(id){ return document.getElementById(id); }
@@ -474,6 +512,80 @@
     }
 
 
+    function clearNoticeImage(){
+      noticeImageBase64="";
+      byId("noticeImageInput").value="";
+      byId("noticeImagePreview").removeAttribute("src");
+      byId("noticeImagePreview").style.display="none";
+      byId("removeNoticeImageBtn").style.display="none";
+      byId("imageHelp").innerHTML="画像は送信前に自動で縮小・圧縮し、Base64として送信します。";
+    }
+
+    function prepareNoticeImage(file){
+      if(!file) return;
+      if(file.type && file.type.indexOf("image/")!==0){
+        toast("画像ファイルを選んで");
+        clearNoticeImage();
+        return;
+      }
+
+      byId("imageHelp").innerHTML="画像を変換中…";
+      var reader=new FileReader();
+      reader.onerror=function(){
+        toast("画像を読み込めなかった");
+        clearNoticeImage();
+      };
+      reader.onload=function(ev){
+        var img=new Image();
+        img.onerror=function(){
+          toast("画像を変換できなかった");
+          clearNoticeImage();
+        };
+        img.onload=function(){
+          try{
+            var maxSide=1280;
+            var w=img.width;
+            var h=img.height;
+            if(w>maxSide || h>maxSide){
+              var scale=Math.min(maxSide/w,maxSide/h);
+              w=Math.max(1,Math.round(w*scale));
+              h=Math.max(1,Math.round(h*scale));
+            }
+
+            var canvas=document.createElement("canvas");
+            canvas.width=w;
+            canvas.height=h;
+            var ctx=canvas.getContext("2d");
+            ctx.drawImage(img,0,0,w,h);
+
+            var data=canvas.toDataURL("image/jpeg",0.72);
+            var approxBytes=Math.round(data.length*0.75);
+
+            if(approxBytes>4500000){
+              data=canvas.toDataURL("image/jpeg",0.48);
+              approxBytes=Math.round(data.length*0.75);
+            }
+            if(approxBytes>6000000){
+              toast("画像が大きすぎる。別の画像を選んで");
+              clearNoticeImage();
+              return;
+            }
+
+            noticeImageBase64=data;
+            byId("noticeImagePreview").src=data;
+            byId("noticeImagePreview").style.display="block";
+            byId("removeNoticeImageBtn").style.display="block";
+            byId("imageHelp").innerHTML="変換後：約"+Math.max(1,Math.round(approxBytes/1024))+"KB（Base64で送信）";
+          }catch(e){
+            toast("画像変換でエラーが起きた");
+            clearNoticeImage();
+          }
+        };
+        img.src=ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
     function playChime(){
       enableAudio();
       if(!audioCtx) return;
@@ -514,7 +626,7 @@
       var title=String(byId("noticeTitleInput").value).replace(/^\s+|\s+$/g,"");
       var detail=String(byId("noticeDetailInput").value).replace(/^\s+|\s+$/g,"");
       var seconds=parseInt(byId("noticeSeconds").value,10);
-      if(!title){ toast("タイトルを入力して"); return; }
+      if(!title && !detail && !noticeImageBase64){ toast("文字か画像を入れて"); return; }
       if(isNaN(seconds)||seconds<1) seconds=1;
       if(seconds>600) seconds=600;
 
@@ -526,14 +638,20 @@
         detail:detail,
         background:byId("noticeColor").value||"#1268d3",
         textColor:byId("noticeTextColor").value||"#ffffff",
+        imageBase64:noticeImageBase64||"",
+        imageFit:byId("noticeImageFit").value||"cover",
+        imageShade:byId("noticeImageShade").value||"0",
         seconds:seconds,
         speech:byId("noticeSpeech").checked===true,
         senderName:deviceName,
         senderId:deviceId,
         sentAt:firebase.database.ServerValue.TIMESTAMP
       },function(error){
-        if(error) toast("送信できなかった");
-        else showScreen("normalScreen");
+        if(error) toast("送信できなかった。画像サイズやFirebaseルールを確認して");
+        else {
+          clearNoticeImage();
+          showScreen("normalScreen");
+        }
       });
     }
 
@@ -554,7 +672,12 @@
       var screen=byId("noticeDisplayScreen");
       screen.style.backgroundColor=data.background||"#1268d3";
       screen.style.color=data.textColor||"#ffffff";
-      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.title||"お知らせ");
+      screen.style.backgroundImage=data.imageBase64 ? "url("+data.imageBase64+")" : "none";
+      screen.style.backgroundSize=data.imageFit==="contain" ? "contain" : "cover";
+      screen.style.setProperty("--image-shade",String(data.imageShade||"0"));
+      if(data.imageBase64) screen.classList.add("hasImage");
+      else screen.classList.remove("hasImage");
+      byId("noticeDisplayTitle").innerHTML=escapeHtml(data.title||"");
       byId("noticeDisplayDetail").innerHTML=escapeHtml(data.detail||"");
       byId("noticeSender").innerHTML="送信元："+escapeHtml(data.senderName||"不明");
       byId("noticeRemain").innerHTML=seconds+"秒";
@@ -636,6 +759,10 @@
       bindPress("backToAlarm",function(){showScreen("alarmScreen");});
       bindPress("clearPin",function(){pin="";updatePin();});
       bindPress("noticeOpenBtn",function(){enableAudio();showScreen("noticeSetupScreen");});
+      byId("noticeImageInput").addEventListener("change",function(){
+        prepareNoticeImage(this.files && this.files[0] ? this.files[0] : null);
+      },false);
+      bindPress("removeNoticeImageBtn",clearNoticeImage);
       bindPress("cancelNoticeBtn",function(){showScreen("normalScreen");});
       bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){

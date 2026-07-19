@@ -145,6 +145,27 @@
       .alarmIcon{font-size:80px}.alarmTitle{font-size:42px;margin-bottom:5px}.alarmInfo{font-size:18px}
     }
   </style>
+  <style>
+    .recordBox{background:#0e0e11;border:1px solid #3a3a43;border-radius:14px;padding:14px;margin-top:10px}
+    .recordStatus{font-weight:800;margin-bottom:10px;color:#ddd}
+    .recordButtons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .recordBtn{border:0;border-radius:14px;padding:14px;font-weight:900;background:#d71920;color:#fff}
+    .recordBtn.stop{background:#35353d}
+    .recordBtn:disabled{opacity:.45}
+    .audioPreview{width:100%;margin-top:10px;display:none}
+    .quakeScreen{background:#12151a;flex-direction:column;padding:0!important;z-index:9999}
+    .quakeHeader{width:100%;padding:max(16px,env(safe-area-inset-top)) 20px 14px;background:#d86b00;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:15px}
+    .quakeHeader strong{font-size:clamp(26px,6vw,46px)}
+    .quakeRemain{font-size:20px;font-weight:900;white-space:nowrap}
+    .quakeBody{width:100%;flex:1;min-height:0;display:grid;grid-template-columns:minmax(280px,42%) 1fr;background:#fff;color:#111}
+    .quakeInfo{padding:22px;overflow:auto}
+    .quakeScale{font-size:clamp(55px,12vw,120px);font-weight:1000;line-height:1;color:#d71920;margin-bottom:14px}
+    .quakePlace{font-size:clamp(25px,5vw,44px);font-weight:1000;margin-bottom:16px}
+    .quakeDetails{font-size:clamp(17px,2.5vw,25px);line-height:1.65;font-weight:700}
+    .quakeMap{width:100%;height:100%;border:0;background:#d9e2e7}
+    .quakeSource{font-size:12px;color:#666;margin-top:12px}
+    @media(max-width:720px){.quakeBody{grid-template-columns:1fr;grid-template-rows:auto 1fr}.quakeInfo{padding:16px}.quakeScale{font-size:58px}.quakeMap{min-height:310px}}
+  </style>
 </head>
 <body>
 
@@ -238,6 +259,17 @@
       <div id="imageHelp" class="imageHelp">画像は送信前に自動で縮小・圧縮し、Base64として送信します。</div>
       <button id="removeNoticeImageBtn" class="secondary" type="button" style="display:none">画像を削除</button>
 
+      <label>録音音声（任意・最大20秒）</label>
+      <div class="recordBox">
+        <div id="recordStatus" class="recordStatus">録音されていません</div>
+        <div class="recordButtons">
+          <button id="startRecordBtn" class="recordBtn" type="button">● 録音開始</button>
+          <button id="stopRecordBtn" class="recordBtn stop" type="button" disabled>■ 録音停止</button>
+        </div>
+        <audio id="recordPreview" class="audioPreview" controls></audio>
+        <button id="removeRecordBtn" class="secondary" type="button" style="display:none">録音を削除</button>
+      </div>
+
       <div class="formRow">
         <div>
           <label for="noticeSeconds">表示時間（秒）</label>
@@ -290,6 +322,22 @@
     <div id="noticeDisplayDetail" class="noticeDisplayDetail"></div>
   </section>
 
+  <section id="quakeScreen" class="screen quakeScreen">
+    <div class="quakeHeader">
+      <strong>地震情報</strong>
+      <span id="quakeRemain" class="quakeRemain">60秒</span>
+    </div>
+    <div class="quakeBody">
+      <div class="quakeInfo">
+        <div id="quakeScale" class="quakeScale">震度---</div>
+        <div id="quakePlace" class="quakePlace">震源地を取得中</div>
+        <div id="quakeDetails" class="quakeDetails"></div>
+        <div class="quakeSource">情報提供：P2P地震情報（気象庁発表情報）</div>
+      </div>
+      <iframe id="quakeMap" class="quakeMap" title="震源地図"></iframe>
+    </div>
+  </section>
+
   <div id="toast" class="toast"></div>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -324,7 +372,18 @@
     var noticeCountdownTimer = null;
     var currentNoticeId = "";
     var noticeImageBase64 = "";
-    var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen","noticeSetupScreen","noticeDisplayScreen"];
+    var noticeAudioBase64 = "";
+    var noticeAudioMime = "";
+    var mediaRecorder = null;
+    var recordChunks = [];
+    var recordStopTimer = null;
+    var receivedAudio = null;
+    var quakeTimer = null;
+    var quakeCountdownTimer = null;
+    var quakeActive = false;
+    var lastQuakeKey = localStorage.getItem("lastQuakeKey") || "";
+    var screenBeforeQuake = "normalScreen";
+    var screens = ["setupScreen","normalScreen","countdownScreen","alarmScreen","pinScreen","noticeSetupScreen","noticeDisplayScreen","quakeScreen"];
 
     function byId(id){ return document.getElementById(id); }
 
@@ -512,6 +571,152 @@
     }
 
 
+    function blobToDataUrl(blob,callback){
+      var reader=new FileReader();
+      reader.onloadend=function(){callback(reader.result||"");};
+      reader.onerror=function(){callback("");};
+      reader.readAsDataURL(blob);
+    }
+
+    function clearRecording(){
+      noticeAudioBase64="";
+      noticeAudioMime="";
+      byId("recordPreview").pause();
+      byId("recordPreview").removeAttribute("src");
+      byId("recordPreview").style.display="none";
+      byId("removeRecordBtn").style.display="none";
+      byId("recordStatus").innerHTML="録音されていません";
+    }
+
+    function startRecording(){
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder){
+        toast("このブラウザは録音に対応していない"); return;
+      }
+      enableAudio();
+      navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+        recordChunks=[];
+        var options={};
+        if(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) options.mimeType="audio/webm;codecs=opus";
+        mediaRecorder=new MediaRecorder(stream,options);
+        mediaRecorder.ondataavailable=function(e){if(e.data && e.data.size>0) recordChunks.push(e.data);};
+        mediaRecorder.onstop=function(){
+          var mime=mediaRecorder.mimeType || "audio/webm";
+          var blob=new Blob(recordChunks,{type:mime});
+          stream.getTracks().forEach(function(t){t.stop();});
+          blobToDataUrl(blob,function(data){
+            if(!data){toast("録音を変換できなかった");clearRecording();return;}
+            if(data.length>7000000){toast("録音データが大きすぎる");clearRecording();return;}
+            noticeAudioBase64=data; noticeAudioMime=mime;
+            byId("recordPreview").src=data; byId("recordPreview").style.display="block";
+            byId("removeRecordBtn").style.display="block";
+            byId("recordStatus").innerHTML="録音済み：約"+Math.max(1,Math.round(data.length*0.75/1024))+"KB";
+          });
+          byId("startRecordBtn").disabled=false;
+          byId("stopRecordBtn").disabled=true;
+        };
+        mediaRecorder.start(250);
+        byId("recordStatus").innerHTML="録音中… 最大20秒";
+        byId("startRecordBtn").disabled=true;
+        byId("stopRecordBtn").disabled=false;
+        recordStopTimer=setTimeout(stopRecording,20000);
+      }).catch(function(){toast("マイクの使用が許可されなかった");});
+    }
+
+    function stopRecording(){
+      if(recordStopTimer) clearTimeout(recordStopTimer);
+      recordStopTimer=null;
+      if(mediaRecorder && mediaRecorder.state!=="inactive") mediaRecorder.stop();
+    }
+
+    function playReceivedAudio(data,mime){
+      if(!data) return;
+      try{
+        if(receivedAudio){receivedAudio.pause();receivedAudio=null;}
+        receivedAudio=new Audio(data);
+        receivedAudio.play().catch(function(){});
+      }catch(e){}
+    }
+
+    function scaleText(scale){
+      var map={10:"1",20:"2",30:"3",40:"4",45:"5弱",50:"5強",55:"6弱",60:"6強",70:"7"};
+      return map[scale] || String(scale||"不明");
+    }
+
+    function quakeKey(data){
+      return String(data.id || ((data.earthquake&&data.earthquake.time)||"")+"|"+((data.earthquake&&data.earthquake.hypocenter&&data.earthquake.hypocenter.name)||""));
+    }
+
+    function checkEarthquake(){
+      var xhr=new XMLHttpRequest();
+      xhr.open("GET","https://api.p2pquake.net/v2/history?codes=551&limit=1&_="+new Date().getTime(),true);
+      xhr.timeout=8000;
+      xhr.onreadystatechange=function(){
+        if(xhr.readyState!==4 || xhr.status<200 || xhr.status>=300) return;
+        try{
+          var arr=JSON.parse(xhr.responseText);
+          if(!arr || !arr.length) return;
+          var d=arr[0], eq=d.earthquake||{}, max=Number(eq.maxScale||0), key=quakeKey(d);
+          if(!lastQuakeKey){lastQuakeKey=key;localStorage.setItem("lastQuakeKey",key);return;}
+          if(key!==lastQuakeKey){
+            lastQuakeKey=key;localStorage.setItem("lastQuakeKey",key);
+            if(max>=10) showEarthquake(d);
+          }
+        }catch(e){}
+      };
+      try{xhr.send();}catch(e){}
+    }
+
+    function playQuakeChime(){
+      enableAudio();
+      if(!audioCtx) return;
+      try{
+        var now=audioCtx.currentTime, notes=[988,1319,1568];
+        for(var i=0;i<notes.length;i++){
+          var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+          o.type="sine";o.frequency.value=notes[i];
+          g.gain.setValueAtTime(0.0001,now+i*0.12);
+          g.gain.exponentialRampToValueAtTime(0.17,now+i*0.12+0.015);
+          g.gain.exponentialRampToValueAtTime(0.0001,now+i*0.12+0.38);
+          o.connect(g);g.connect(audioCtx.destination);o.start(now+i*0.12);o.stop(now+i*0.12+0.4);
+        }
+      }catch(e){}
+    }
+
+    function showEarthquake(data){
+      var eq=data.earthquake||{}, hypo=eq.hypocenter||{}, max=Number(eq.maxScale||0);
+      quakeActive=true;
+      var active=document.querySelector(".screen.active");
+      if(active && active.id!=="quakeScreen") screenBeforeQuake=active.id;
+      stopSiren();
+      if(receivedAudio) try{receivedAudio.pause();}catch(e){}
+      if(window.speechSynthesis) try{window.speechSynthesis.cancel();}catch(e){}
+      byId("quakeScale").innerHTML="震度"+escapeHtml(scaleText(max));
+      byId("quakePlace").innerHTML=escapeHtml(hypo.name||"震源地不明");
+      var mag=(hypo.magnitude===-1||hypo.magnitude==null)?"不明":"M"+hypo.magnitude;
+      var dep=(hypo.depth===-1||hypo.depth==null)?"不明":hypo.depth+"km";
+      byId("quakeDetails").innerHTML="発生時刻："+escapeHtml(eq.time||"不明")+"<br>最大震度：震度"+escapeHtml(scaleText(max))+"<br>マグニチュード："+escapeHtml(mag)+"<br>深さ："+escapeHtml(dep);
+      var lat=Number(hypo.latitude),lon=Number(hypo.longitude);
+      if(isFinite(lat)&&isFinite(lon)&&lat!==-200&&lon!==-200){
+        var box=(lon-3)+","+(lat-2)+","+(lon+3)+","+(lat+2);
+        byId("quakeMap").src="https://www.openstreetmap.org/export/embed.html?bbox="+encodeURIComponent(box)+"&layer=mapnik&marker="+encodeURIComponent(lat+","+lon);
+      }else byId("quakeMap").src="about:blank";
+      showScreen("quakeScreen");playQuakeChime();
+      if(navigator.vibrate) navigator.vibrate([250,120,250]);
+      var remain=60;byId("quakeRemain").innerHTML=remain+"秒";
+      if(quakeTimer)clearTimeout(quakeTimer);if(quakeCountdownTimer)clearInterval(quakeCountdownTimer);
+      quakeCountdownTimer=setInterval(function(){remain--;if(remain<0)remain=0;byId("quakeRemain").innerHTML=remain+"秒";},1000);
+      quakeTimer=setTimeout(closeEarthquake,60000);
+    }
+
+    function closeEarthquake(){
+      quakeActive=false;
+      if(quakeTimer)clearTimeout(quakeTimer);if(quakeCountdownTimer)clearInterval(quakeCountdownTimer);
+      quakeTimer=null;quakeCountdownTimer=null;
+      var returnTo=screenBeforeQuake||"normalScreen";
+      if(alarmActive) showScreen("alarmScreen"); else if(returnTo==="quakeScreen") showScreen("normalScreen"); else showScreen(returnTo);
+      if(alarmActive) startSiren();
+    }
+
     function clearNoticeImage(){
       noticeImageBase64="";
       byId("noticeImageInput").value="";
@@ -626,7 +831,7 @@
       var title=String(byId("noticeTitleInput").value).replace(/^\s+|\s+$/g,"");
       var detail=String(byId("noticeDetailInput").value).replace(/^\s+|\s+$/g,"");
       var seconds=parseInt(byId("noticeSeconds").value,10);
-      if(!title && !detail && !noticeImageBase64){ toast("文字か画像を入れて"); return; }
+      if(!title && !detail && !noticeImageBase64 && !noticeAudioBase64){ toast("文字・画像・録音のどれかを入れて"); return; }
       if(isNaN(seconds)||seconds<1) seconds=1;
       if(seconds>600) seconds=600;
 
@@ -641,6 +846,8 @@
         imageBase64:noticeImageBase64||"",
         imageFit:byId("noticeImageFit").value||"cover",
         imageShade:byId("noticeImageShade").value||"0",
+        audioBase64:noticeAudioBase64||"",
+        audioMime:noticeAudioMime||"",
         seconds:seconds,
         speech:byId("noticeSpeech").checked===true,
         senderName:deviceName,
@@ -650,6 +857,7 @@
         if(error) toast("送信できなかった。画像サイズやFirebaseルールを確認して");
         else {
           clearNoticeImage();
+          clearRecording();
           showScreen("normalScreen");
         }
       });
@@ -687,6 +895,9 @@
       if(data.speech){
         setTimeout(function(){speakNotice(data.title,data.detail);},700);
       }
+      if(data.audioBase64){
+        setTimeout(function(){playReceivedAudio(data.audioBase64,data.audioMime);},750);
+      }
 
       var remain=seconds;
       noticeCountdownTimer=setInterval(function(){
@@ -706,7 +917,8 @@
       noticeTimer=null;
       noticeCountdownTimer=null;
       if(window.speechSynthesis) try{window.speechSynthesis.cancel();}catch(e){}
-      if(!alarmActive) showScreen("normalScreen");
+      if(receivedAudio){try{receivedAudio.pause();}catch(e){} receivedAudio=null;}
+      if(!alarmActive && !quakeActive) showScreen("normalScreen");
     }
 
     function repeatText(text,count){
@@ -763,6 +975,9 @@
         prepareNoticeImage(this.files && this.files[0] ? this.files[0] : null);
       },false);
       bindPress("removeNoticeImageBtn",clearNoticeImage);
+      bindPress("startRecordBtn",startRecording);
+      bindPress("stopRecordBtn",stopRecording);
+      bindPress("removeRecordBtn",clearRecording);
       bindPress("cancelNoticeBtn",function(){showScreen("normalScreen");});
       bindPress("sendNoticeBtn",sendNotice);
       bindPress("settingsBtn",function(){
@@ -783,7 +998,10 @@
       }
 
       if(db){
-        db.ref(".info/connected").on("value",function(snap){
+        checkEarthquake();
+    setInterval(checkEarthquake,10000);
+
+    db.ref(".info/connected").on("value",function(snap){
           var ok=snap.val()===true;
           var dot=byId("connectionDot");
           dot.className=ok?"dot ok":"dot";

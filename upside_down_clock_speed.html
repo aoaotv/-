@@ -122,14 +122,15 @@
     const startButton = document.getElementById("startButton");
 
     function updateClock() {
-      const now = new Date();
-      const h = String(now.getHours()).padStart(2, "0");
-      const m = String(now.getMinutes()).padStart(2, "0");
-      clockEl.textContent = `${h}:${m}:${s}`;
-    }
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, "0");
+  const m = String(now.getMinutes()).padStart(2, "0");
+  const s = String(now.getSeconds()).padStart(2, "0");
+  clockEl.textContent = `${h}:${m}:${s}`;
+}
 
-    updateClock();
-    setInterval(updateClock, 1000);
+updateClock();
+setInterval(updateClock, 1000);
 
     function showSpeed(kmh) {
       const value = Number.isFinite(kmh) ? Math.max(0, Math.round(kmh)) : null;

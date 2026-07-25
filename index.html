@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>時計・時速メーター</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .panel {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      border-bottom: 2px solid #222;
+    }
+
+    .panel:last-of-type {
+      border-bottom: none;
+    }
+
+    .display {
+      width: 100%;
+      padding: 0 12px;
+      text-align: center;
+      line-height: 0.9;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      transform-origin: center;
+      transition: transform 0.25s ease;
+    }
+
+    #clock {
+      font-size: clamp(55px, 17vw, 180px);
+      letter-spacing: -0.05em;
+    }
+
+    #speed {
+      font-size: clamp(100px, 31vw, 310px);
+      letter-spacing: -0.06em;
+    }
+
+    .unit {
+      margin-left: 0.12em;
+      font-size: 0.24em;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    #status {
+      position: fixed;
+      left: 50%;
+      bottom: max(8px, env(safe-area-inset-bottom));
+      z-index: 6;
+      color: #888;
+      font-size: 12px;
+      white-space: nowrap;
+      transform-origin: center;
+      transition: transform 0.25s ease;
+    }
+
+    #controls {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top));
+      right: 10px;
+      z-index: 20;
+      display: flex;
+      gap: 8px;
+    }
+
+    .control-button {
+      min-height: 42px;
+      padding: 9px 13px;
+      border: 1px solid #444;
+      border-radius: 12px;
+      background: rgba(35, 35, 35, 0.92);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+
+    .control-button:active {
+      transform: scale(0.96);
+    }
+
+    #startButton {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: rgba(0, 0, 0, 0.94);
+      color: #fff;
+      font-size: clamp(24px, 7vw, 38px);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    #startButton span {
+      display: block;
+    }
+
+    #modeMenu {
+      position: fixed;
+      top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+      right: 10px;
+      z-index: 25;
+      display: none;
+      width: min(220px, calc(100vw - 20px));
+      padding: 8px;
+      border: 1px solid #444;
+      border-radius: 14px;
+      background: rgba(20, 20, 20, 0.97);
+      backdrop-filter: blur(12px);
+    }
+
+    #modeMenu.open {
+      display: block;
+    }
+
+    .mode-option {
+      width: 100%;
+      margin: 0;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: #fff;
+      text-align: left;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .mode-option.active {
+      background: #fff;
+      color: #000;
+    }
+
+    .mode-option + .mode-option {
+      margin-top: 4px;
+    }
+
+    @media (orientation: landscape) {
+      #clock {
+        font-size: clamp(48px, 13vw, 150px);
+      }
+
+      #speed {
+        font-size: clamp(80px, 24vw, 250px);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="panel">
+    <div id="clock" class="display">00:00:00</div>
+  </div>
+
+  <div class="panel">
+    <div id="speed" class="display">
+      --<span class="unit">km/h</span>
+    </div>
+  </div>
+
+  <div id="status">位置情報待機中</div>
+
+  <div id="controls">
+    <button id="directionButton" class="control-button" type="button">向き</button>
+    <button id="fullscreenButton" class="control-button" type="button">全画面</button>
+  </div>
+
+  <div id="modeMenu">
+    <button class="mode-option" data-mode="normal" type="button">通常</button>
+    <button class="mode-option active" data-mode="vertical" type="button">上下反転</button>
+    <button class="mode-option" data-mode="horizontal" type="button">左右反転</button>
+    <button class="mode-option" data-mode="rotate180" type="button">180°回転</button>
+  </div>
+
+  <button id="startButton" type="button">
+    <span>タップして開始</span>
+  </button>
+
+  <script>
+    const clockEl = document.getElementById("clock");
+    const speedEl = document.getElementById("speed");
+    const statusEl = document.getElementById("status");
+    const startButton = document.getElementById("startButton");
+    const directionButton = document.getElementById("directionButton");
+    const fullscreenButton = document.getElementById("fullscreenButton");
+    const modeMenu = document.getElementById("modeMenu");
+    const modeOptions = document.querySelectorAll(".mode-option");
+
+    const modes = {
+      normal: {
+        name: "通常",
+        displayTransform: "none",
+        statusTransform: "translateX(-50%)"
+      },
+      vertical: {
+        name: "上下反転",
+        displayTransform: "scaleY(-1)",
+        statusTransform: "translateX(-50%) scaleY(-1)"
+      },
+      horizontal: {
+        name: "左右反転",
+        displayTransform: "scaleX(-1)",
+        statusTransform: "translateX(-50%) scaleX(-1)"
+      },
+      rotate180: {
+        name: "180°回転",
+        displayTransform: "rotate(180deg)",
+        statusTransform: "translateX(-50%) rotate(180deg)"
+      }
+    };
+
+    let currentMode = localStorage.getItem("displayMode") || "vertical";
+
+    if (!modes[currentMode]) {
+      currentMode = "vertical";
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, "0");
+      const minutes = String(now.getMinutes()).padStart(2, "0");
+      const seconds = String(now.getSeconds()).padStart(2, "0");
+
+      clockEl.textContent = `${hours}:${minutes}:${seconds}`;
+    }
+
+    function showSpeed(kmh) {
+      const value = Number.isFinite(kmh)
+        ? Math.max(0, Math.round(kmh))
+        : null;
+
+      speedEl.innerHTML =
+        `${value === null ? "--" : value}<span class="unit">km/h</span>`;
+    }
+
+    function applyMode(modeName) {
+      const selectedMode = modes[modeName];
+      currentMode = modeName;
+
+      document.querySelectorAll(".display").forEach((element) => {
+        element.style.transform = selectedMode.displayTransform;
+      });
+
+      statusEl.style.transform = selectedMode.statusTransform;
+      directionButton.textContent = selectedMode.name;
+
+      modeOptions.forEach((button) => {
+        button.classList.toggle("active", button.dataset.mode === modeName);
+      });
+
+      localStorage.setItem("displayMode", modeName);
+    }
+
+    function startGPS() {
+      startButton.style.display = "none";
+
+      if (!("geolocation" in navigator)) {
+        statusEl.textContent = "この端末は位置情報に対応していません";
+        showSpeed(null);
+        return;
+      }
+
+      statusEl.textContent = "位置情報を取得中…";
+
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const metersPerSecond = position.coords.speed;
+          const accuracy = Math.round(position.coords.accuracy);
+
+          if (
+            metersPerSecond === null ||
+            !Number.isFinite(metersPerSecond)
+          ) {
+            showSpeed(0);
+            statusEl.textContent = `GPS精度 約${accuracy}m`;
+            return;
+          }
+
+          const kmh = metersPerSecond * 3.6;
+          showSpeed(kmh);
+          statusEl.textContent = `GPS精度 約${accuracy}m`;
+        },
+        (error) => {
+          showSpeed(null);
+
+          if (error.code === error.PERMISSION_DENIED) {
+            statusEl.textContent = "位置情報を許可してね";
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            statusEl.textContent = "位置情報を取得できません";
+          } else if (error.code === error.TIMEOUT) {
+            statusEl.textContent = "位置情報の取得がタイムアウトしました";
+          } else {
+            statusEl.textContent = "位置情報エラー";
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 15000
+        }
+      );
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch (error) {
+        statusEl.textContent = "このブラウザでは全画面にできません";
+      }
+    }
+
+    directionButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      modeMenu.classList.toggle("open");
+    });
+
+    modeOptions.forEach((button) => {
+      button.addEventListener("click", () => {
+        applyMode(button.dataset.mode);
+        modeMenu.classList.remove("open");
+      });
+    });
+
+    fullscreenButton.addEventListener("click", toggleFullscreen);
+
+    startButton.addEventListener("click", startGPS, { once: true });
+
+    document.addEventListener("click", (event) => {
+      if (
+        !modeMenu.contains(event.target) &&
+        event.target !== directionButton
+      ) {
+        modeMenu.classList.remove("open");
+      }
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+      fullscreenButton.textContent =
+        document.fullscreenElement ? "全画面終了" : "全画面";
+    });
+
+    applyMode(currentMode);
+    updateClock();
+    setInterval(updateClock, 1000);
+  </script>
+</body>
+</html>

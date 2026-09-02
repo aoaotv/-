@@ -2,1028 +2,1251 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>プロジェクターお絵描きボード</title>
 
-<title>プロジェクターお絵かきボード</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <style>
-
 * {
-    box-sizing: border-box;
+  box-sizing:border-box;
 }
 
-html,
-body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: white;
-    font-family: sans-serif;
+html,body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:white;
+  font-family:Arial,sans-serif;
 }
 
-
-/* =========================
-   お絵かきキャンバス
-========================= */
-
-#canvas {
-
-    position: fixed;
-
-    left: 0;
-    top: 0;
-
-    width: 100vw;
-    height: 100vh;
-
-    background: white;
-
-    z-index: 1;
+#drawCanvas {
+  position:fixed;
+  left:0;
+  top:0;
+  width:100vw;
+  height:100vh;
+  background:white;
+  z-index:1;
+  touch-action:none;
 }
-
-
-/* =========================
-   カメラ表示
-========================= */
 
 #video {
-
-    position: fixed;
-
-    right: 10px;
-    bottom: 10px;
-
-    width: 240px;
-    height: auto;
-
-    border: 3px solid black;
-
-    border-radius: 10px;
-
-    background: black;
-
-    z-index: 10;
-
+  display:none;
 }
 
-
-/* =========================
-   操作パネル
-========================= */
+#preview {
+  position:fixed;
+  right:15px;
+  bottom:15px;
+  width:280px;
+  height:158px;
+  object-fit:cover;
+  background:#111;
+  border-radius:14px;
+  z-index:20;
+  box-shadow:0 3px 15px rgba(0,0,0,.25);
+}
 
 #ui {
-
-    position: fixed;
-
-    top: 15px;
-    left: 15px;
-
-    z-index: 20;
-
-    display: flex;
-
-    gap: 8px;
-
-    align-items: center;
-
-    flex-wrap: wrap;
-
+  position:fixed;
+  top:15px;
+  left:15px;
+  z-index:30;
+  background:rgba(255,255,255,.94);
+  padding:12px;
+  border-radius:16px;
+  box-shadow:0 4px 20px rgba(0,0,0,.2);
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  max-width:520px;
 }
 
-
-/* =========================
-   ボタン
-========================= */
-
-button,
-select {
-
-    font-size: 18px;
-
-    padding: 10px 15px;
-
-    border: none;
-
-    border-radius: 12px;
-
-    background: #222;
-
-    color: white;
-
-    cursor: pointer;
-
+button,select,input {
+  font-size:15px;
 }
 
-
-button:hover {
-
-    background: #444;
-
+button {
+  border:0;
+  border-radius:10px;
+  padding:10px 13px;
+  background:#eee;
+  cursor:pointer;
 }
 
-
-select {
-
-    background: #444;
-
+button:active {
+  transform:scale(.96);
 }
 
-
-/* =========================
-   ズームバー
-========================= */
+#cameraSelect {
+  padding:9px;
+  border-radius:10px;
+  border:1px solid #ccc;
+  max-width:220px;
+}
 
 #zoomBox {
-
-    position: fixed;
-
-    right: 10px;
-    bottom: 280px;
-
-    z-index: 20;
-
-    background: rgba(0,0,0,0.75);
-
-    color: white;
-
-    padding: 12px;
-
-    border-radius: 12px;
-
+  position:fixed;
+  right:15px;
+  top:15px;
+  z-index:30;
+  background:rgba(255,255,255,.94);
+  padding:10px 13px;
+  border-radius:14px;
+  box-shadow:0 4px 20px rgba(0,0,0,.2);
 }
-
 
 #zoomSlider {
-
-    width: 220px;
-
+  width:150px;
 }
 
-
-#zoomValue {
-
-    display: inline-block;
-
-    width: 45px;
-
-    text-align: right;
-
+#showPanel {
+  position:fixed;
+  left:15px;
+  top:15px;
+  z-index:100;
+  display:none;
+  background:rgba(255,255,255,.95);
+  box-shadow:0 3px 15px rgba(0,0,0,.2);
 }
 
-
-/* =========================
-   削除モードON
-========================= */
-
-#deleteMode.active {
-
-    background: #d00000;
-
+#status {
+  position:fixed;
+  left:50%;
+  bottom:15px;
+  transform:translateX(-50%);
+  z-index:40;
+  background:rgba(0,0,0,.7);
+  color:white;
+  padding:8px 16px;
+  border-radius:20px;
+  font-size:14px;
 }
 
+#calibration {
+  position:fixed;
+  inset:0;
+  z-index:90;
+  background:rgba(255,255,255,.97);
+  display:none;
+}
+
+.calPoint {
+  position:absolute;
+  width:46px;
+  height:46px;
+  border:5px solid #222;
+  border-radius:50%;
+  background:white;
+  transform:translate(-50%,-50%);
+}
+
+.calPoint::after {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:10px;
+  height:10px;
+  background:#222;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+}
+
+#calText {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:24px;
+  text-align:center;
+  pointer-events:none;
+}
+
+#calCancel {
+  position:absolute;
+  right:20px;
+  top:20px;
+  z-index:5;
+  background:#eee;
+}
+
+#calCursor {
+  position:absolute;
+  width:30px;
+  height:30px;
+  border:4px solid red;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+  display:none;
+  pointer-events:none;
+}
+
+#calProgress {
+  position:absolute;
+  left:50%;
+  bottom:35px;
+  transform:translateX(-50%);
+  font-size:18px;
+}
+
+@media(max-width:700px) {
+  #preview {
+    width:200px;
+    height:113px;
+  }
+
+  #ui {
+    max-width:calc(100vw - 30px);
+  }
+}
 </style>
 </head>
 
-
 <body>
 
+<video id="video" autoplay playsinline></video>
 
-<!-- =========================
-     お絵かきキャンバス
-========================= -->
-
-<canvas id="canvas"></canvas>
-
-
-<!-- =========================
-     Webカメラ
-========================= -->
-
-<video
-    id="video"
-    autoplay
-    playsinline>
-</video>
-
-
-<!-- =========================
-     操作ボタン
-========================= -->
+<canvas id="preview"></canvas>
+<canvas id="drawCanvas"></canvas>
 
 <div id="ui">
 
-    <select id="cameraSelect">
+  <select id="cameraSelect">
+    <option>カメラを読み込み中...</option>
+  </select>
 
-        <option>
-            カメラを選択
-        </option>
+  <button id="switchCamera">📷 カメラ切替</button>
 
-    </select>
+  <button id="mirrorBtn">↔️ 左右反転：OFF</button>
 
+  <button id="colorBtn">🎨 色変更</button>
 
-    <button id="switchButton">
-        📷 カメラ切り替え
-    </button>
+  <button id="eraserBtn">🧽 消しゴム：OFF</button>
 
+  <button id="clearBtn">🗑️ 全消去</button>
 
-    <button id="mirrorButton">
-        ↔️ 反転 ON
-    </button>
+  <button id="calibrationBtn">🎯 校正開始</button>
 
+  <button id="resetCalibrationBtn">↩️ 校正リセット</button>
 
-    <button id="deleteMode">
-        🧹 削除モード
-    </button>
-
-
-    <button id="clearButton">
-        🗑️ 全消去
-    </button>
-
-
-    <button id="colorButton">
-        🎨 黒
-    </button>
+  <button id="hidePanel">🙈 パネルを隠す</button>
 
 </div>
-
-
-<!-- =========================
-     認識範囲ズーム
-========================= -->
 
 <div id="zoomBox">
+  🔍 ズーム
+  <input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1">
+  <span id="zoomValue">1.0x</span>
+</div>
 
-    🔍 認識範囲ズーム
+<button id="showPanel">⚙️ パネル表示</button>
 
-    <br>
+<div id="status">カメラを起動しています...</div>
 
-    <input
-        id="zoomSlider"
-        type="range"
-        min="1"
-        max="4"
-        step="0.1"
-        value="1">
+<div id="calibration">
 
-    <span id="zoomValue">
-        1.0x
-    </span>
+  <button id="calCancel">✕ キャンセル</button>
+
+  <div id="calText">
+    指を使って<br>
+    <b>左上の●</b>をタップしてください
+  </div>
+
+  <div id="calProgress">1 / 4</div>
+
+  <div id="calCursor"></div>
+
+  <div class="calPoint" id="p0" style="left:5%;top:5%;"></div>
+  <div class="calPoint" id="p1" style="left:95%;top:5%;"></div>
+  <div class="calPoint" id="p2" style="left:95%;top:95%;"></div>
+  <div class="calPoint" id="p3" style="left:5%;top:95%;"></div>
 
 </div>
 
-
-<!-- MediaPipe Hands -->
-
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-
-
 <script>
+const video = document.getElementById("video");
+const drawCanvas = document.getElementById("drawCanvas");
+const ctx = drawCanvas.getContext("2d");
 
+const preview = document.getElementById("preview");
+const pctx = preview.getContext("2d");
 
-// =====================================================
-// 基本設定
-// =====================================================
+const statusText = document.getElementById("status");
 
-const video =
-    document.getElementById("video");
+const cameraSelect = document.getElementById("cameraSelect");
+const switchCameraBtn = document.getElementById("switchCamera");
 
-const canvas =
-    document.getElementById("canvas");
+const mirrorBtn = document.getElementById("mirrorBtn");
+const colorBtn = document.getElementById("colorBtn");
+const eraserBtn = document.getElementById("eraserBtn");
+const clearBtn = document.getElementById("clearBtn");
 
-const ctx =
-    canvas.getContext("2d");
+const zoomSlider = document.getElementById("zoomSlider");
+const zoomValue = document.getElementById("zoomValue");
 
+const ui = document.getElementById("ui");
+const zoomBox = document.getElementById("zoomBox");
+const hidePanel = document.getElementById("hidePanel");
+const showPanel = document.getElementById("showPanel");
 
-const cameraSelect =
-    document.getElementById("cameraSelect");
+const calibration = document.getElementById("calibration");
+const calibrationBtn = document.getElementById("calibrationBtn");
+const resetCalibrationBtn =
+  document.getElementById("resetCalibrationBtn");
 
+const calText = document.getElementById("calText");
+const calProgress = document.getElementById("calProgress");
+const calCursor = document.getElementById("calCursor");
+const calCancel = document.getElementById("calCancel");
 
-const switchButton =
-    document.getElementById("switchButton");
+let stream = null;
 
+let mirror = false;
+let eraser = false;
+let colorIndex = 0;
 
-const mirrorButton =
-    document.getElementById("mirrorButton");
+const colors = [
+  "#000000",
+  "#ff0000",
+  "#0066ff",
+  "#00aa44",
+  "#ff8800",
+  "#aa00ff",
+  "#ff1493"
+];
 
+let zoom = 1;
 
-const deleteMode =
-    document.getElementById("deleteMode");
-
-
-const clearButton =
-    document.getElementById("clearButton");
-
-
-const colorButton =
-    document.getElementById("colorButton");
-
-
-const zoomSlider =
-    document.getElementById("zoomSlider");
-
-
-const zoomValue =
-    document.getElementById("zoomValue");
-
-
-// =====================================================
-// 状態
-// =====================================================
-
-let currentStream = null;
-
-let mirrored = true;
-
-let deleting = false;
-
-let color = "black";
-
+let drawing = false;
 let lastX = null;
-
 let lastY = null;
 
+/*
+  校正用
+  source = カメラ座標
+  target = 画面座標
+*/
+let calibrationData = null;
 
-// =====================================================
-// キャンバスサイズ
-// =====================================================
+let calibrationMode = false;
+let calibrationStep = 0;
+
+let calibrationSamples = [];
+
+const targetPoints = [
+  {x:0.05, y:0.05},
+  {x:0.95, y:0.05},
+  {x:0.95, y:0.95},
+  {x:0.05, y:0.95}
+];
+
+/* -----------------------------
+   キャンバスサイズ
+----------------------------- */
 
 function resizeCanvas() {
 
-    canvas.width =
-        window.innerWidth;
+  const old = document.createElement("canvas");
 
-    canvas.height =
-        window.innerHeight;
+  old.width = drawCanvas.width;
+  old.height = drawCanvas.height;
 
+  if(old.width && old.height) {
+    old.getContext("2d").drawImage(drawCanvas,0,0);
+  }
+
+  drawCanvas.width = window.innerWidth;
+  drawCanvas.height = window.innerHeight;
+
+  if(old.width && old.height) {
+    ctx.drawImage(
+      old,
+      0,
+      0,
+      old.width,
+      old.height,
+      0,
+      0,
+      drawCanvas.width,
+      drawCanvas.height
+    );
+  }
 }
 
+window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-window.addEventListener(
-    "resize",
-    resizeCanvas
-);
-
-
-// =====================================================
-// カメラ一覧
-// =====================================================
+/* -----------------------------
+   カメラ
+----------------------------- */
 
 async function getCameras() {
 
-    try {
-
-        const temp =
-            await navigator.mediaDevices
-            .getUserMedia({
-                video: true
-            });
-
-
-        temp.getTracks()
-        .forEach(track => {
-            track.stop();
-        });
-
-    }
-
-    catch (error) {
-
-        alert(
-            "カメラへのアクセスを許可してください"
-        );
-
-        return;
-
-    }
-
+  try {
 
     const devices =
-        await navigator.mediaDevices
-        .enumerateDevices();
-
+      await navigator.mediaDevices.enumerateDevices();
 
     const cameras =
-        devices.filter(
-            device =>
-            device.kind === "videoinput"
-        );
-
+      devices.filter(d => d.kind === "videoinput");
 
     cameraSelect.innerHTML = "";
 
+    cameras.forEach((camera,index) => {
 
-    cameras.forEach(
-        (camera, index) => {
+      const option =
+        document.createElement("option");
 
-            const option =
-                document.createElement(
-                    "option"
-                );
+      option.value = camera.deviceId;
 
+      option.textContent =
+        camera.label || `カメラ ${index + 1}`;
 
-            option.value =
-                camera.deviceId;
+      cameraSelect.appendChild(option);
 
+    });
 
-            option.textContent =
-                camera.label ||
-                `カメラ ${index + 1}`;
+  } catch(e) {
 
+    console.error(e);
 
-            cameraSelect.appendChild(
-                option
-            );
-
-        }
-    );
-
-
-    if (cameras.length > 0) {
-
-        startCamera(
-            cameras[0].deviceId
-        );
-
-    }
-
+  }
 }
 
+async function startCamera(deviceId=null) {
 
-// =====================================================
-// カメラ開始
-// =====================================================
+  try {
 
-async function startCamera(deviceId) {
+    if(stream) {
 
-    if (currentStream) {
-
-        currentStream
-        .getTracks()
-        .forEach(track =>
-            track.stop()
-        );
+      stream.getTracks().forEach(
+        track => track.stop()
+      );
 
     }
 
+    const constraints = {
 
-    try {
+      video: deviceId
+        ? {
+            deviceId:{exact:deviceId},
+            width:{ideal:1280},
+            height:{ideal:720}
+          }
+        : {
+            width:{ideal:1280},
+            height:{ideal:720}
+          },
 
-        currentStream =
-            await navigator.mediaDevices
-            .getUserMedia({
+      audio:false
+    };
 
-                video: {
+    stream =
+      await navigator.mediaDevices
+        .getUserMedia(constraints);
 
-                    deviceId: {
-                        exact: deviceId
-                    },
+    video.srcObject = stream;
 
-                    width: {
-                        ideal: 1280
-                    },
+    await video.play();
 
-                    height: {
-                        ideal: 720
-                    }
+    await getCameras();
 
-                }
-
-            });
-
-
-        video.srcObject =
-            currentStream;
-
-
-        lastX = null;
-        lastY = null;
-
-
+    if(deviceId) {
+      cameraSelect.value = deviceId;
     }
 
-    catch (error) {
+    statusText.textContent =
+      "👆 人差し指を動かしてください";
 
-        console.error(error);
+  } catch(e) {
 
-        alert(
-            "カメラを起動できませんでした"
-        );
+    console.error(e);
 
-    }
+    statusText.textContent =
+      "❌ カメラを使用できません";
 
+    alert(
+      "カメラを使用できません。\n\n" +
+      "カメラの許可を確認してください。"
+    );
+
+  }
 }
 
+switchCameraBtn.onclick = async () => {
 
-// =====================================================
-// カメラ切り替え
-// =====================================================
+  const options =
+    [...cameraSelect.options];
 
-switchButton.onclick =
-async function () {
+  if(options.length < 2) return;
 
-    const options =
-        Array.from(
-            cameraSelect.options
-        );
+  let index =
+    cameraSelect.selectedIndex;
 
+  index++;
 
-    if (options.length <= 1)
-        return;
+  if(index >= options.length)
+    index = 0;
 
+  cameraSelect.selectedIndex = index;
 
-    let index =
-        cameraSelect.selectedIndex;
+  await startCamera(
+    cameraSelect.value
+  );
+};
 
+cameraSelect.onchange = () => {
 
-    index++;
-
-
-    if (index >= options.length)
-        index = 0;
-
-
-    cameraSelect.selectedIndex =
-        index;
-
-
-    await startCamera(
-        cameraSelect.value
-    );
+  startCamera(
+    cameraSelect.value
+  );
 
 };
 
+/* -----------------------------
+   ズーム
+----------------------------- */
 
-cameraSelect.onchange =
-function () {
+zoomSlider.oninput = () => {
 
-    startCamera(
-        cameraSelect.value
-    );
+  zoom =
+    parseFloat(zoomSlider.value);
+
+  zoomValue.textContent =
+    zoom.toFixed(1) + "x";
+
+  lastX = null;
+  lastY = null;
+};
+
+/* -----------------------------
+   左右反転
+----------------------------- */
+
+mirrorBtn.onclick = () => {
+
+  mirror = !mirror;
+
+  mirrorBtn.textContent =
+    mirror
+      ? "↔️ 左右反転：ON"
+      : "↔️ 左右反転：OFF";
+
+  lastX = null;
+  lastY = null;
+};
+
+/* -----------------------------
+   色
+----------------------------- */
+
+colorBtn.onclick = () => {
+
+  colorIndex++;
+
+  if(colorIndex >= colors.length)
+    colorIndex = 0;
+
+  colorBtn.textContent =
+    "🎨 色：" + colors[colorIndex];
 
 };
 
+/* -----------------------------
+   消しゴム
+----------------------------- */
 
-// =====================================================
-// 左右反転
-// =====================================================
+eraserBtn.onclick = () => {
 
-mirrorButton.onclick =
-function () {
+  eraser = !eraser;
 
-    mirrored =
-        !mirrored;
+  eraserBtn.textContent =
+    eraser
+      ? "🧽 消しゴム：ON"
+      : "🧽 消しゴム：OFF";
 
+};
 
-    mirrorButton.textContent =
-        mirrored
-        ? "↔️ 反転 ON"
-        : "↔️ 反転 OFF";
+/* -----------------------------
+   全消去
+----------------------------- */
 
+clearBtn.onclick = () => {
+
+  ctx.clearRect(
+    0,
+    0,
+    drawCanvas.width,
+    drawCanvas.height
+  );
+
+};
+
+/* -----------------------------
+   パネル
+----------------------------- */
+
+hidePanel.onclick = () => {
+
+  ui.style.display = "none";
+  zoomBox.style.display = "none";
+
+  showPanel.style.display = "block";
+
+};
+
+showPanel.onclick = () => {
+
+  ui.style.display = "flex";
+  zoomBox.style.display = "block";
+
+  showPanel.style.display = "none";
+
+};
+
+/* =========================================================
+   ホモグラフィ計算
+========================================================= */
+
+/*
+  4点対応から8個の係数を求める。
+  x' = (a*x+b*y+c)/(g*x+h*y+1)
+  y' = (d*x+e*y+f)/(g*x+h*y+1)
+*/
+
+function solveLinear(A,b) {
+
+  const n = b.length;
+
+  const M =
+    A.map((row,i) =>
+      row.slice().concat([b[i]])
+    );
+
+  for(let i=0;i<n;i++) {
+
+    let maxRow = i;
+
+    for(let r=i+1;r<n;r++) {
+
+      if(
+        Math.abs(M[r][i]) >
+        Math.abs(M[maxRow][i])
+      ) {
+        maxRow = r;
+      }
+
+    }
+
+    [
+      M[i],
+      M[maxRow]
+    ] =
+    [
+      M[maxRow],
+      M[i]
+    ];
+
+    const pivot = M[i][i];
+
+    if(Math.abs(pivot) < 1e-12)
+      return null;
+
+    for(let j=i;j<=n;j++) {
+      M[i][j] /= pivot;
+    }
+
+    for(let r=0;r<n;r++) {
+
+      if(r === i) continue;
+
+      const factor = M[r][i];
+
+      for(let j=i;j<=n;j++) {
+
+        M[r][j] -=
+          factor * M[i][j];
+
+      }
+
+    }
+
+  }
+
+  return M.map(row => row[n]);
+}
+
+function calculateHomography(src,dst) {
+
+  const A = [];
+  const b = [];
+
+  for(let i=0;i<4;i++) {
+
+    const x = src[i].x;
+    const y = src[i].y;
+
+    const X = dst[i].x;
+    const Y = dst[i].y;
+
+    A.push([
+      x,y,1,
+      0,0,0,
+      -X*x,-X*y
+    ]);
+
+    b.push(X);
+
+    A.push([
+      0,0,0,
+      x,y,1,
+      -Y*x,-Y*y
+    ]);
+
+    b.push(Y);
+  }
+
+  return solveLinear(A,b);
+}
+
+function applyHomography(H,x,y) {
+
+  if(!H)
+    return {x,y};
+
+  const den =
+    H[6]*x +
+    H[7]*y +
+    1;
+
+  if(Math.abs(den) < 1e-10)
+    return {x,y};
+
+  return {
+
+    x:
+      (H[0]*x +
+       H[1]*y +
+       H[2]) / den,
+
+    y:
+      (H[3]*x +
+       H[4]*y +
+       H[5]) / den
+
+  };
+}
+
+/* =========================================================
+   校正
+========================================================= */
+
+calibrationBtn.onclick = () => {
+
+  startCalibration();
+
+};
+
+function startCalibration() {
+
+  calibrationMode = true;
+  calibrationStep = 0;
+  calibrationSamples = [];
+
+  calibration.style.display = "block";
+
+  calCursor.style.display = "none";
+
+  updateCalibrationUI();
+
+  lastX = null;
+  lastY = null;
+
+}
+
+function updateCalibrationUI() {
+
+  const names = [
+    "左上",
+    "右上",
+    "右下",
+    "左下"
+  ];
+
+  calText.innerHTML =
+    "指を使って<br>" +
+    `<b>${names[calibrationStep]}の●</b>` +
+    "をタップしてください";
+
+  calProgress.textContent =
+    `${calibrationStep + 1} / 4`;
+
+}
+
+function cancelCalibration() {
+
+  calibrationMode = false;
+
+  calibration.style.display = "none";
+
+  calCursor.style.display = "none";
+
+}
+
+calCancel.onclick =
+  cancelCalibration;
+
+function finishCalibration() {
+
+  const src =
+    calibrationSamples.map(p => ({
+      x:p.x,
+      y:p.y
+    }));
+
+  const dst =
+    targetPoints.map(p => ({
+      x:p.x,
+      y:p.y
+    }));
+
+  const H =
+    calculateHomography(src,dst);
+
+  if(H) {
+
+    calibrationData = H;
+
+    statusText.textContent =
+      "✅ 校正完了";
+
+    alert(
+      "校正が完了しました！\n\n" +
+      "人差し指の位置が投影画面に合わせて補正されます。"
+    );
+
+  } else {
+
+    alert(
+      "校正に失敗しました。\n" +
+      "もう一度試してください。"
+    );
+
+  }
+
+  calibrationMode = false;
+  calibration.style.display = "none";
+  calCursor.style.display = "none";
+
+  lastX = null;
+  lastY = null;
+
+}
+
+resetCalibrationBtn.onclick = () => {
+
+  calibrationData = null;
+
+  lastX = null;
+  lastY = null;
+
+  statusText.textContent =
+    "↩️ 校正をリセットしました";
+
+};
+
+/* =========================================================
+   カメラ画像をズームして取得
+========================================================= */
+
+const processCanvas =
+  document.createElement("canvas");
+
+const processCtx =
+  processCanvas.getContext("2d");
+
+function drawZoomedFrame() {
+
+  if(
+    !video.videoWidth ||
+    !video.videoHeight
+  )
+    return;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
+  const cropW = vw / zoom;
+  const cropH = vh / zoom;
+
+  const cropX =
+    (vw - cropW) / 2;
+
+  const cropY =
+    (vh - cropH) / 2;
+
+  const w = 640;
+
+  const h =
+    Math.round(
+      w * cropH / cropW
+    );
+
+  processCanvas.width = w;
+  processCanvas.height = h;
+
+  processCtx.save();
+
+  if(mirror) {
+
+    processCtx.translate(w,0);
+    processCtx.scale(-1,1);
+
+  }
+
+  processCtx.drawImage(
+    video,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    0,
+    0,
+    w,
+    h
+  );
+
+  processCtx.restore();
+
+}
+
+/* =========================================================
+   プレビュー
+========================================================= */
+
+function updatePreview() {
+
+  if(
+    !video.videoWidth ||
+    !video.videoHeight
+  )
+    return;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
+  const cropW = vw / zoom;
+  const cropH = vh / zoom;
+
+  const cropX =
+    (vw - cropW) / 2;
+
+  const cropY =
+    (vh - cropH) / 2;
+
+  const pw = 560;
+
+  const ph =
+    Math.round(
+      pw * cropH / cropW
+    );
+
+  if(
+    preview.width !== pw ||
+    preview.height !== ph
+  ) {
+
+    preview.width = pw;
+    preview.height = ph;
+
+  }
+
+  pctx.clearRect(
+    0,
+    0,
+    pw,
+    ph
+  );
+
+  pctx.save();
+
+  if(mirror) {
+
+    pctx.translate(pw,0);
+    pctx.scale(-1,1);
+
+  }
+
+  pctx.drawImage(
+    video,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    0,
+    0,
+    pw,
+    ph
+  );
+
+  pctx.restore();
+
+}
+
+/* =========================================================
+   MediaPipe Hands
+========================================================= */
+
+const hands =
+  new Hands({
+    locateFile: file =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+
+hands.setOptions({
+
+  maxNumHands:1,
+
+  modelComplexity:1,
+
+  minDetectionConfidence:.55,
+
+  minTrackingConfidence:.55
+
+});
+
+hands.onResults(results => {
+
+  if(
+    !results.multiHandLandmarks ||
+    !results.multiHandLandmarks.length
+  ) {
 
     lastX = null;
     lastY = null;
 
-};
+    return;
 
+  }
 
-// =====================================================
-// 削除モード
-// =====================================================
+  const hand =
+    results.multiHandLandmarks[0];
 
-deleteMode.onclick =
-function () {
+  const finger =
+    hand[8];
 
-    deleting =
-        !deleting;
+  /*
+    MediaPipeの座標は
+    0～1
+  */
 
+  let x = finger.x;
+  let y = finger.y;
 
-    deleteMode.classList.toggle(
-        "active",
-        deleting
-    );
+  /*
+    校正中
+  */
 
+  if(calibrationMode) {
 
-    deleteMode.textContent =
-        deleting
-        ? "🧹 削除モード ON"
-        : "🧹 削除モード";
+    calCursor.style.left =
+      (x * 100) + "%";
 
-};
+    calCursor.style.top =
+      (y * 100) + "%";
 
+    calCursor.style.display =
+      "block";
 
-// =====================================================
-// 全消去
-// =====================================================
+    /*
+      指がターゲットの近くに来たら
+      一定時間待って自動登録
+    */
 
-clearButton.onclick =
-function () {
+    const target =
+      targetPoints[calibrationStep];
 
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    const dx = x - target.x;
+    const dy = y - target.y;
 
-};
+    const distance =
+      Math.sqrt(dx*dx + dy*dy);
 
+    if(distance < .08) {
 
-// =====================================================
-// 色変更
-// =====================================================
+      calibrationSamples.push({
+        x:x,
+        y:y
+      });
 
-const colors = [
+      calibrationStep++;
 
-    {
-        name: "黒",
-        value: "black"
-    },
+      if(calibrationStep >= 4) {
 
-    {
-        name: "赤",
-        value: "red"
-    },
+        finishCalibration();
 
-    {
-        name: "青",
-        value: "blue"
-    },
+      } else {
 
-    {
-        name: "緑",
-        value: "green"
-    },
+        updateCalibrationUI();
 
-    {
-        name: "オレンジ",
-        value: "orange"
-    },
-
-    {
-        name: "紫",
-        value: "purple"
-    }
-
-];
-
-
-let colorIndex = 0;
-
-
-colorButton.onclick =
-function () {
-
-    colorIndex++;
-
-    if (
-        colorIndex >= colors.length
-    ) {
-
-        colorIndex = 0;
+      }
 
     }
 
+    return;
 
-    color =
-        colors[colorIndex].value;
+  }
 
+  /*
+    校正済みなら座標変換
+  */
 
-    colorButton.textContent =
-        "🎨 " +
-        colors[colorIndex].name;
+  if(calibrationData) {
 
-};
+    const p =
+      applyHomography(
+        calibrationData,
+        x,
+        y
+      );
 
+    x = p.x;
+    y = p.y;
 
-// =====================================================
-// ズーム表示
-// =====================================================
+  }
 
-zoomSlider.oninput =
-function () {
+  /*
+    画面外を制限
+  */
 
-    zoomValue.textContent =
-        Number(
-            zoomSlider.value
-        ).toFixed(1)
-        + "x";
+  x =
+    Math.max(
+      0,
+      Math.min(1,x)
+    );
 
-};
+  y =
+    Math.max(
+      0,
+      Math.min(1,y)
+    );
 
+  const screenX =
+    x * drawCanvas.width;
 
-// =====================================================
-// MediaPipe Hands
-// =====================================================
+  const screenY =
+    y * drawCanvas.height;
 
-const hands =
-    new Hands({
-
-        locateFile:
-        (file) => {
-
-            return (
-                "https://cdn.jsdelivr.net/npm/" +
-                "@mediapipe/hands/" +
-                file
-            );
-
-        }
-
-    });
-
-
-hands.setOptions({
-
-    maxNumHands: 1,
-
-    modelComplexity: 1,
-
-    minDetectionConfidence: 0.7,
-
-    minTrackingConfidence: 0.7
+  draw(screenX,screenY);
 
 });
 
+/* =========================================================
+   描画
+========================================================= */
 
-// =====================================================
-// 一時キャンバス
-// =====================================================
+function draw(x,y) {
 
-const recognitionCanvas =
-    document.createElement(
-        "canvas"
-    );
-
-const recognitionCtx =
-    recognitionCanvas.getContext(
-        "2d"
-    );
-
-
-// =====================================================
-// 手を認識
-// =====================================================
-
-hands.onResults(
-function(results) {
-
-
-    if (
-        !results.multiHandLandmarks ||
-        results.multiHandLandmarks.length === 0
-    ) {
-
-        lastX = null;
-        lastY = null;
-
-        return;
-
-    }
-
-
-    const hand =
-        results.multiHandLandmarks[0];
-
-
-    // 人差し指先端
-    const finger =
-        hand[8];
-
-
-    const zoom =
-        parseFloat(
-            zoomSlider.value
-        );
-
-
-    // -------------------------------------------------
-    // MediaPipeの座標は
-    // ズームされた認識範囲内の座標
-    // -------------------------------------------------
-
-    let nx =
-        finger.x;
-
-    let ny =
-        finger.y;
-
-
-    // -------------------------------------------------
-    // 左右反転
-    // -------------------------------------------------
-
-    if (mirrored) {
-
-        nx =
-            1 - nx;
-
-    }
-
-
-    // -------------------------------------------------
-    // キャンバス上の位置
-    // -------------------------------------------------
-
-    const x =
-        nx *
-        canvas.width;
-
-
-    const y =
-        ny *
-        canvas.height;
-
-
-    // -------------------------------------------------
-    // 人差し指が伸びているか
-    // -------------------------------------------------
-
-    const isIndexUp =
-        hand[8].y <
-        hand[6].y;
-
-
-    if (!isIndexUp) {
-
-        lastX = null;
-        lastY = null;
-
-        return;
-
-    }
-
-
-    // -------------------------------------------------
-    // 線を描く
-    // -------------------------------------------------
-
-    if (
-        lastX !== null &&
-        lastY !== null
-    ) {
-
-        ctx.beginPath();
-
-        ctx.moveTo(
-            lastX,
-            lastY
-        );
-
-        ctx.lineTo(
-            x,
-            y
-        );
-
-
-        if (deleting) {
-
-            ctx.globalCompositeOperation =
-                "destination-out";
-
-            ctx.lineWidth = 45;
-
-        }
-
-        else {
-
-            ctx.globalCompositeOperation =
-                "source-over";
-
-            ctx.strokeStyle =
-                color;
-
-            ctx.lineWidth = 8;
-
-        }
-
-
-        ctx.lineCap =
-            "round";
-
-
-        ctx.stroke();
-
-
-        ctx.globalCompositeOperation =
-            "source-over";
-
-    }
-
+  if(lastX === null) {
 
     lastX = x;
     lastY = y;
 
-});
+    return;
 
+  }
 
-// =====================================================
-// MediaPipeへ送る映像
-// =====================================================
+  ctx.beginPath();
 
-async function processCamera() {
+  ctx.moveTo(
+    lastX,
+    lastY
+  );
 
-    if (
-        video.readyState >= 2 &&
-        video.videoWidth > 0
-    ) {
+  ctx.lineTo(
+    x,
+    y
+  );
 
-        const w =
-            video.videoWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
-        const h =
-            video.videoHeight;
+  if(eraser) {
 
+    ctx.globalCompositeOperation =
+      "destination-out";
 
-        const zoom =
-            parseFloat(
-                zoomSlider.value
-            );
+    ctx.lineWidth = 45;
 
+  } else {
 
-        // ---------------------------------------------
-        // ズームする範囲
-        // ---------------------------------------------
+    ctx.globalCompositeOperation =
+      "source-over";
 
-        const cropW =
-            w / zoom;
+    ctx.strokeStyle =
+      colors[colorIndex];
 
-        const cropH =
-            h / zoom;
+    ctx.lineWidth = 8;
 
+  }
 
-        // 中央から切り出す
-        const cropX =
-            (w - cropW) / 2;
+  ctx.stroke();
 
-        const cropY =
-            (h - cropH) / 2;
+  ctx.globalCompositeOperation =
+    "source-over";
 
-
-        recognitionCanvas.width =
-            w;
-
-        recognitionCanvas.height =
-            h;
-
-
-        recognitionCtx.clearRect(
-            0,
-            0,
-            w,
-            h
-        );
-
-
-        // ---------------------------------------------
-        // 中央部分を拡大して
-        // MediaPipeに送る
-        // ---------------------------------------------
-
-        recognitionCtx.drawImage(
-
-            video,
-
-            cropX,
-            cropY,
-            cropW,
-            cropH,
-
-            0,
-            0,
-            w,
-            h
-
-        );
-
-
-        await hands.send({
-
-            image:
-                recognitionCanvas
-
-        });
-
-    }
-
-
-    requestAnimationFrame(
-        processCamera
-    );
+  lastX = x;
+  lastY = y;
 
 }
 
+/* =========================================================
+   メインループ
+========================================================= */
 
-// =====================================================
-// 起動
-// =====================================================
+async function processFrame() {
 
-getCameras();
+  if(video.readyState >= 2) {
 
-processCamera();
+    drawZoomedFrame();
+
+    updatePreview();
+
+    try {
+
+      await hands.send({
+        image:processCanvas
+      });
+
+    } catch(e) {
+
+      console.error(e);
+
+    }
+
+  }
+
+  requestAnimationFrame(processFrame);
+
+}
+
+/* =========================================================
+   起動
+========================================================= */
+
+(async function(){
+
+  await startCamera();
+
+  processFrame();
+
+})();
 
 </script>
 

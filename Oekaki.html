@@ -12,16 +12,21 @@
     box-sizing: border-box;
 }
 
+html,
 body {
     margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: white;
     font-family: sans-serif;
 }
 
-/* =====================
+
+/* =========================
    お絵かきキャンバス
-===================== */
+========================= */
 
 #canvas {
 
@@ -39,9 +44,9 @@ body {
 }
 
 
-/* =====================
-   カメラ映像
-===================== */
+/* =========================
+   カメラ表示
+========================= */
 
 #video {
 
@@ -51,21 +56,22 @@ body {
     bottom: 10px;
 
     width: 240px;
+    height: auto;
 
     border: 3px solid black;
 
     border-radius: 10px;
 
-    z-index: 5;
+    background: black;
 
-    transform: scaleX(-1);
+    z-index: 10;
 
 }
 
 
-/* =====================
+/* =========================
    操作パネル
-===================== */
+========================= */
 
 #ui {
 
@@ -87,11 +93,12 @@ body {
 }
 
 
-/* =====================
+/* =========================
    ボタン
-===================== */
+========================= */
 
-button {
+button,
+select {
 
     font-size: 18px;
 
@@ -105,76 +112,94 @@ button {
 
     color: white;
 
+    cursor: pointer;
+
 }
 
 
-/* =====================
+button:hover {
+
+    background: #444;
+
+}
+
+
+select {
+
+    background: #444;
+
+}
+
+
+/* =========================
    ズームバー
-===================== */
+========================= */
 
 #zoomBox {
 
     position: fixed;
 
     right: 10px;
-    bottom: 270px;
+    bottom: 280px;
 
     z-index: 20;
 
-    background: rgba(0,0,0,0.7);
+    background: rgba(0,0,0,0.75);
 
     color: white;
 
-    padding: 10px;
+    padding: 12px;
 
     border-radius: 12px;
 
 }
 
+
 #zoomSlider {
 
-    width: 200px;
+    width: 220px;
 
 }
 
 
-/* =====================
-   削除モード
-===================== */
+#zoomValue {
+
+    display: inline-block;
+
+    width: 45px;
+
+    text-align: right;
+
+}
+
+
+/* =========================
+   削除モードON
+========================= */
 
 #deleteMode.active {
 
-    background: #d22;
-
-}
-
-
-/* =====================
-   操作UI非表示
-===================== */
-
-.hidden {
-
-    display: none !important;
+    background: #d00000;
 
 }
 
 </style>
 </head>
 
+
 <body>
 
 
-<!-- =====================
+<!-- =========================
      お絵かきキャンバス
-===================== -->
+========================= -->
 
 <canvas id="canvas"></canvas>
 
 
-<!-- =====================
-     カメラ
-===================== -->
+<!-- =========================
+     Webカメラ
+========================= -->
 
 <video
     id="video"
@@ -183,9 +208,9 @@ button {
 </video>
 
 
-<!-- =====================
-     操作パネル
-===================== -->
+<!-- =========================
+     操作ボタン
+========================= -->
 
 <div id="ui">
 
@@ -199,12 +224,12 @@ button {
 
 
     <button id="switchButton">
-        📷 カメラ
+        📷 カメラ切り替え
     </button>
 
 
     <button id="mirrorButton">
-        ↔️ 反転
+        ↔️ 反転 ON
     </button>
 
 
@@ -219,32 +244,27 @@ button {
 
 
     <button id="colorButton">
-        🎨 色
-    </button>
-
-
-    <button id="hideButton">
-        🖥️ ボタンを隠す
+        🎨 黒
     </button>
 
 </div>
 
 
-<!-- =====================
-     ズームバー
-===================== -->
+<!-- =========================
+     認識範囲ズーム
+========================= -->
 
 <div id="zoomBox">
 
-    🔍 カメラズーム
+    🔍 認識範囲ズーム
 
     <br>
 
     <input
         id="zoomSlider"
         type="range"
-        min="0.5"
-        max="3"
+        min="1"
+        max="4"
         step="0.1"
         value="1">
 
@@ -255,15 +275,17 @@ button {
 </div>
 
 
+<!-- MediaPipe Hands -->
+
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 
 <script>
 
 
-// =====================
-// 基本
-// =====================
+// =====================================================
+// 基本設定
+// =====================================================
 
 const video =
     document.getElementById("video");
@@ -299,10 +321,6 @@ const colorButton =
     document.getElementById("colorButton");
 
 
-const hideButton =
-    document.getElementById("hideButton");
-
-
 const zoomSlider =
     document.getElementById("zoomSlider");
 
@@ -311,29 +329,26 @@ const zoomValue =
     document.getElementById("zoomValue");
 
 
+// =====================================================
+// 状態
+// =====================================================
+
 let currentStream = null;
-
-
-let color = "black";
-
 
 let mirrored = true;
 
-
 let deleting = false;
 
+let color = "black";
 
 let lastX = null;
 
 let lastY = null;
 
 
-let cameraZoom = 1;
-
-
-// =====================
+// =====================================================
 // キャンバスサイズ
-// =====================
+// =====================================================
 
 function resizeCanvas() {
 
@@ -353,9 +368,9 @@ window.addEventListener(
 );
 
 
-// =====================
+// =====================================================
 // カメラ一覧
-// =====================
+// =====================================================
 
 async function getCameras() {
 
@@ -369,11 +384,13 @@ async function getCameras() {
 
 
         temp.getTracks()
-        .forEach(track =>
-            track.stop()
-        );
+        .forEach(track => {
+            track.stop();
+        });
 
-    } catch (error) {
+    }
+
+    catch (error) {
 
         alert(
             "カメラへのアクセスを許可してください"
@@ -436,13 +453,11 @@ async function getCameras() {
 }
 
 
-// =====================
+// =====================================================
 // カメラ開始
-// =====================
+// =====================================================
 
-async function startCamera(
-    deviceId
-) {
+async function startCamera(deviceId) {
 
     if (currentStream) {
 
@@ -488,7 +503,9 @@ async function startCamera(
         lastY = null;
 
 
-    } catch (error) {
+    }
+
+    catch (error) {
 
         console.error(error);
 
@@ -501,9 +518,9 @@ async function startCamera(
 }
 
 
-// =====================
+// =====================================================
 // カメラ切り替え
-// =====================
+// =====================================================
 
 switchButton.onclick =
 async function () {
@@ -533,14 +550,13 @@ async function () {
         index;
 
 
-    startCamera(
+    await startCamera(
         cameraSelect.value
     );
 
 };
 
 
-// 選択変更
 cameraSelect.onchange =
 function () {
 
@@ -551,18 +567,15 @@ function () {
 };
 
 
-// =====================
+// =====================================================
 // 左右反転
-// =====================
+// =====================================================
 
 mirrorButton.onclick =
 function () {
 
     mirrored =
         !mirrored;
-
-
-    updateVideoTransform();
 
 
     mirrorButton.textContent =
@@ -577,83 +590,9 @@ function () {
 };
 
 
-// =====================
-// カメラ表示更新
-// =====================
-
-function updateVideoTransform() {
-
-    video.style.transform =
-        `${mirrored ? "scaleX(-1)" : "scaleX(1)"} scale(${cameraZoom})`;
-
-}
-
-
-// =====================
-// ズームバー
-// =====================
-
-zoomSlider.oninput =
-function () {
-
-    cameraZoom =
-        parseFloat(
-            zoomSlider.value
-        );
-
-
-    zoomValue.textContent =
-        cameraZoom.toFixed(1) + "x";
-
-
-    updateVideoTransform();
-
-};
-
-
-// =====================
-// 色変更
-// =====================
-
-const colors = [
-
-    "black",
-    "red",
-    "blue",
-    "green",
-    "orange",
-    "purple"
-
-];
-
-
-colorButton.onclick =
-function () {
-
-    let index =
-        colors.indexOf(color);
-
-
-    index++;
-
-
-    if (index >= colors.length)
-        index = 0;
-
-
-    color =
-        colors[index];
-
-
-    colorButton.textContent =
-        "🎨 " + color;
-
-};
-
-
-// =====================
+// =====================================================
 // 削除モード
-// =====================
+// =====================================================
 
 deleteMode.onclick =
 function () {
@@ -676,9 +615,9 @@ function () {
 };
 
 
-// =====================
+// =====================================================
 // 全消去
-// =====================
+// =====================================================
 
 clearButton.onclick =
 function () {
@@ -693,28 +632,92 @@ function () {
 };
 
 
-// =====================
-// ボタンを隠す
-// =====================
+// =====================================================
+// 色変更
+// =====================================================
 
-hideButton.onclick =
+const colors = [
+
+    {
+        name: "黒",
+        value: "black"
+    },
+
+    {
+        name: "赤",
+        value: "red"
+    },
+
+    {
+        name: "青",
+        value: "blue"
+    },
+
+    {
+        name: "緑",
+        value: "green"
+    },
+
+    {
+        name: "オレンジ",
+        value: "orange"
+    },
+
+    {
+        name: "紫",
+        value: "purple"
+    }
+
+];
+
+
+let colorIndex = 0;
+
+
+colorButton.onclick =
 function () {
 
-    document
-    .getElementById("ui")
-    .classList.add("hidden");
+    colorIndex++;
+
+    if (
+        colorIndex >= colors.length
+    ) {
+
+        colorIndex = 0;
+
+    }
 
 
-    document
-    .getElementById("zoomBox")
-    .classList.add("hidden");
+    color =
+        colors[colorIndex].value;
+
+
+    colorButton.textContent =
+        "🎨 " +
+        colors[colorIndex].name;
 
 };
 
 
-// =====================
-// MediaPipe
-// =====================
+// =====================================================
+// ズーム表示
+// =====================================================
+
+zoomSlider.oninput =
+function () {
+
+    zoomValue.textContent =
+        Number(
+            zoomSlider.value
+        ).toFixed(1)
+        + "x";
+
+};
+
+
+// =====================================================
+// MediaPipe Hands
+// =====================================================
 
 const hands =
     new Hands({
@@ -722,8 +725,11 @@ const hands =
         locateFile:
         (file) => {
 
-            return
-            `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            return (
+                "https://cdn.jsdelivr.net/npm/" +
+                "@mediapipe/hands/" +
+                file
+            );
 
         }
 
@@ -743,12 +749,27 @@ hands.setOptions({
 });
 
 
-// =====================
-// 手を検出
-// =====================
+// =====================================================
+// 一時キャンバス
+// =====================================================
+
+const recognitionCanvas =
+    document.createElement(
+        "canvas"
+    );
+
+const recognitionCtx =
+    recognitionCanvas.getContext(
+        "2d"
+    );
+
+
+// =====================================================
+// 手を認識
+// =====================================================
 
 hands.onResults(
-function (results) {
+function(results) {
 
 
     if (
@@ -768,26 +789,59 @@ function (results) {
         results.multiHandLandmarks[0];
 
 
-    // 人差し指
+    // 人差し指先端
     const finger =
         hand[8];
 
 
+    const zoom =
+        parseFloat(
+            zoomSlider.value
+        );
+
+
+    // -------------------------------------------------
+    // MediaPipeの座標は
+    // ズームされた認識範囲内の座標
+    // -------------------------------------------------
+
+    let nx =
+        finger.x;
+
+    let ny =
+        finger.y;
+
+
+    // -------------------------------------------------
+    // 左右反転
+    // -------------------------------------------------
+
+    if (mirrored) {
+
+        nx =
+            1 - nx;
+
+    }
+
+
+    // -------------------------------------------------
+    // キャンバス上の位置
+    // -------------------------------------------------
+
     const x =
-        (
-            mirrored
-            ? 1 - finger.x
-            : finger.x
-        )
-        * canvas.width;
+        nx *
+        canvas.width;
 
 
     const y =
-        finger.y
-        * canvas.height;
+        ny *
+        canvas.height;
 
 
-    // 指が伸びているか
+    // -------------------------------------------------
+    // 人差し指が伸びているか
+    // -------------------------------------------------
+
     const isIndexUp =
         hand[8].y <
         hand[6].y;
@@ -803,20 +857,21 @@ function (results) {
     }
 
 
+    // -------------------------------------------------
+    // 線を描く
+    // -------------------------------------------------
+
     if (
         lastX !== null &&
         lastY !== null
     ) {
 
-
         ctx.beginPath();
-
 
         ctx.moveTo(
             lastX,
             lastY
         );
-
 
         ctx.lineTo(
             x,
@@ -826,26 +881,22 @@ function (results) {
 
         if (deleting) {
 
-            // 消しゴム
             ctx.globalCompositeOperation =
                 "destination-out";
 
+            ctx.lineWidth = 45;
 
-            ctx.lineWidth =
-                40;
+        }
 
-        } else {
+        else {
 
             ctx.globalCompositeOperation =
                 "source-over";
 
-
             ctx.strokeStyle =
                 color;
 
-
-            ctx.lineWidth =
-                8;
+            ctx.lineWidth = 8;
 
         }
 
@@ -866,22 +917,94 @@ function (results) {
     lastX = x;
     lastY = y;
 
-
 });
 
 
-// =====================
-// カメラ処理
-// =====================
+// =====================================================
+// MediaPipeへ送る映像
+// =====================================================
 
 async function processCamera() {
 
     if (
-        video.readyState >= 2
+        video.readyState >= 2 &&
+        video.videoWidth > 0
     ) {
 
+        const w =
+            video.videoWidth;
+
+        const h =
+            video.videoHeight;
+
+
+        const zoom =
+            parseFloat(
+                zoomSlider.value
+            );
+
+
+        // ---------------------------------------------
+        // ズームする範囲
+        // ---------------------------------------------
+
+        const cropW =
+            w / zoom;
+
+        const cropH =
+            h / zoom;
+
+
+        // 中央から切り出す
+        const cropX =
+            (w - cropW) / 2;
+
+        const cropY =
+            (h - cropH) / 2;
+
+
+        recognitionCanvas.width =
+            w;
+
+        recognitionCanvas.height =
+            h;
+
+
+        recognitionCtx.clearRect(
+            0,
+            0,
+            w,
+            h
+        );
+
+
+        // ---------------------------------------------
+        // 中央部分を拡大して
+        // MediaPipeに送る
+        // ---------------------------------------------
+
+        recognitionCtx.drawImage(
+
+            video,
+
+            cropX,
+            cropY,
+            cropW,
+            cropH,
+
+            0,
+            0,
+            w,
+            h
+
+        );
+
+
         await hands.send({
-            image: video
+
+            image:
+                recognitionCanvas
+
         });
 
     }
@@ -894,9 +1017,9 @@ async function processCamera() {
 }
 
 
-// =====================
+// =====================================================
 // 起動
-// =====================
+// =====================================================
 
 getCameras();
 

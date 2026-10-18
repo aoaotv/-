@@ -38,8 +38,13 @@ button{font:inherit;font-size:15px;padding:10px 14px;border-radius:8px;border:1p
 button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
 button.p{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 input[type=range]{width:100%}
-.turn{display:flex;gap:20px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line)}
-#gc{width:160px;height:160px;flex:none;border:0}
+.turn{padding:16px 0;border-bottom:1px solid var(--line)}
+.hbar{position:relative;height:48px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.hbar i{position:absolute;top:0;bottom:0;display:block;background:var(--fg);opacity:.8}
+.hbar b{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--bg)}
+#lf{right:50%}#rt{left:50%}
+.hl{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:4px}
+.turn>div:last-child{margin-top:10px}
 #tl{font-size:22px;font-weight:700}
 #tn{font-size:44px;line-height:1.2;font-weight:800}
 .hint{font-size:13px;color:var(--mut);margin:8px 0}
@@ -57,7 +62,8 @@ input[type=range]{width:100%}
   </div>
 </section>
 <section class="turn">
-  <canvas id="gc" aria-label="前後と左右のGの位置"></canvas>
+  <div class="hl"><span>← 左</span><span>右 →</span></div>
+  <div class="hbar"><i id="lf"></i><i id="rt"></i><b></b></div>
   <div>
     <div id="tl">直進</div>
     <div class="big"><span id="tn">0.00</span><small>G</small></div>
@@ -82,7 +88,6 @@ const $=id=>document.getElementById(id),G=9.80665,HIST=12000;
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],nrm=a=>Math.hypot(a[0],a[1],a[2]);
 let f=[0,1,0],sign=1,gv=null,sm=[0,0,0],val=0,pa=0,pb=0,got=0,last=0,learn=null,lat=0,lsign=1,pl=0,pr=0,upv=null;
 const crs=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const trail=[],gc=$('gc'),gx=gc.getContext('2d');
 const hist=[],cv=$('cv'),cx=cv.getContext('2d'),hero=document.querySelector('.hero');
 const st=t=>{$('st').textContent=t};
 
@@ -119,19 +124,6 @@ function onOri(e){
   upv=[-Math.cos(b)*Math.sin(g),Math.sin(b),Math.cos(b)*Math.cos(g)];
 }
 
-function drawG(cs){
-  const d=devicePixelRatio||1,W=gc.width,c=W/2,R=c-6*d,k=R/.8,col=n=>cs.getPropertyValue(n).trim();
-  const P=(a,b)=>[c+Math.max(-.8,Math.min(.8,a))*k,c-Math.max(-.8,Math.min(.8,b))*k];
-  gx.clearRect(0,0,W,W);gx.strokeStyle=col('--line');gx.lineWidth=2*d;
-  [.4,.8].forEach(v=>{gx.beginPath();gx.arc(c,c,v*k,0,7);gx.stroke()});
-  gx.beginPath();gx.moveTo(c,c-R);gx.lineTo(c,c+R);gx.moveTo(c-R,c);gx.lineTo(c+R,c);gx.stroke();
-  trail.push([lat,val]);if(trail.length>50)trail.shift();
-  gx.fillStyle=col('--mut');
-  trail.forEach(([a,b],i)=>{const [x,y]=P(a,b);gx.globalAlpha=i/trail.length*.5;gx.beginPath();gx.arc(x,y,4*d,0,7);gx.fill()});
-  gx.globalAlpha=1;gx.fillStyle=col(val>.03?'--acc':val<-.03?'--brk':'--fg');
-  const [x,y]=P(lat,val);gx.beginPath();gx.arc(x,y,9*d,0,7);gx.fill();
-}
-
 function draw(now){
   const W=cv.width,H=cv.height,mid=H/2,S=mid/.8,cs=getComputedStyle(document.documentElement),d=devicePixelRatio||1;
   cx.clearRect(0,0,W,H);
@@ -162,13 +154,15 @@ function tick(now){
   $('pa').textContent=pa.toFixed(2);$('pb').textContent=pb.toFixed(2);
   $('pl').textContent=pl.toFixed(2);$('pr').textContent=pr.toFixed(2);
   $('tn').textContent=Math.abs(lat).toFixed(2);
+  $('lf').style.width=Math.min(1,Math.max(-lat,0)/.8)*50+'%';
+  $('rt').style.width=Math.min(1,Math.max(lat,0)/.8)*50+'%';
   $('tl').textContent=lat>.03?'右カーブ':lat<-.03?'左カーブ':'直進';
   hero.dataset.s=val>.03?'a':val<-.03?'b':'n';
   $('lab').textContent=val>.03?'アクセル（加速）':val<-.03?'ブレーキ（減速）':'一定／停止';
-  draw(now);drawG(getComputedStyle(document.documentElement));requestAnimationFrame(tick);
+  draw(now);requestAnimationFrame(tick);
 }
 
-function fit(){const d=devicePixelRatio||1;cv.width=cv.clientWidth*d;cv.height=cv.clientHeight*d;gc.width=gc.clientWidth*d;gc.height=gc.clientHeight*d}
+function fit(){const d=devicePixelRatio||1;cv.width=cv.clientWidth*d;cv.height=cv.clientHeight*d}
 addEventListener('resize',fit);fit();requestAnimationFrame(tick);
 
 $('start').onclick=async()=>{

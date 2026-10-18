@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>アクセル／ブレーキ メーター</title>
+<style>
+:root{--bg:#eef1f5;--fg:#121821;--mut:#5d6877;--line:#cfd6df;--panel:#fff;--acc:#1d6fe0;--brk:#e5412d;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1118;--fg:#e9edf3;--mut:#93a0b2;--line:#263040;--panel:#151b25;--acc:#5aa2ff;--brk:#ff6b57;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1118;--fg:#e9edf3;--mut:#93a0b2;--line:#263040;--panel:#151b25;--acc:#5aa2ff;--brk:#ff6b57;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 "Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+h1{font-size:18px;margin:0;font-weight:700}
+#st{font-size:13px;color:var(--mut);text-align:right}
+.hero{display:flex;gap:20px;padding:16px 0;border-bottom:1px solid var(--line)}
+.col{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px;flex:none}
+.col span:first-child{color:var(--acc)}.col span:last-child{color:var(--brk)}
+.meter{position:relative;width:76px;height:290px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.meter i{position:absolute;left:0;right:0;display:block}
+#up{bottom:50%;background:var(--acc)}#dn{top:50%;background:var(--brk)}
+.meter .z{top:50%;height:2px;margin-top:-1px;background:var(--fg);opacity:.6}
+.meter b{position:absolute;left:0;right:0;border-top:1px dashed var(--line);font-size:10px;color:var(--mut);padding-left:4px;font-weight:400;line-height:1.3}
+.read{flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+#lab{font-size:22px;font-weight:700;color:var(--mut)}
+[data-s=a] #lab,[data-s=a] #num{color:var(--acc)}
+[data-s=b] #lab,[data-s=b] #num{color:var(--brk)}
+.big{font-variant-numeric:tabular-nums}
+#num{font-size:clamp(64px,24vw,112px);line-height:1;font-weight:800;letter-spacing:-.02em}
+.big small{font-size:22px;margin-left:6px;color:var(--mut);font-weight:600}
+#ms,.pk{font-size:14px;color:var(--mut);font-variant-numeric:tabular-nums}
+.pk b{color:var(--fg)}
+canvas{display:block;width:100%;height:150px;border-bottom:1px solid var(--line)}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+button{font:inherit;font-size:15px;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+button.p{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+input[type=range]{width:100%}
+.hint{font-size:13px;color:var(--mut);margin:8px 0}
+</style>
+</head>
+<body>
+<main>
+<header><h1>アクセル／ブレーキ メーター</h1><span id="st">待機中</span></header>
+<section class="hero" data-s="n">
+  <div class="col"><span>アクセル</span><div class="meter"><i class="z"></i><i id="up"></i><i id="dn"></i></div><span>ブレーキ</span></div>
+  <div class="read">
+    <div id="lab">一定／停止</div>
+    <div><div class="big"><span id="num">0.00</span><small>G</small></div><div id="ms">0.0 m/s²</div></div>
+    <div class="pk">最大加速 <b id="pa">0.00</b> G<br>最大減速 <b id="pb">0.00</b> G</div>
+  </div>
+</section>
+<canvas id="cv" aria-label="直近12秒の前後Gの推移"></canvas>
+<div class="row">
+  <button class="p" id="start">スタート</button>
+  <button id="cal">前方向を学習</button>
+  <button id="flip">向きを反転</button>
+  <button id="rst">ピークをリセット</button>
+</div>
+<input type="range" id="demo" min="-80" max="80" value="0" hidden aria-label="デモ用：加速・減速">
+<p class="hint">使い方：「スタート」でセンサーを許可し、スマホを車にしっかり固定します。「前方向を学習」を押して6秒以内に前へ加速すると向きが決まります。逆に表示されたら「向きを反転」。操作は必ず停車中に行ってください。</p>
+<p class="hint">表示は加速度センサーから推定した前後Gで、ペダル操作そのものではありません（エンジンブレーキなども減速として表示されます）。</p>
+</main>
+<script>
+const $=id=>document.getElementById(id),G=9.80665,HIST=12000;
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],nrm=a=>Math.hypot(a[0],a[1],a[2]);
+let f=[0,1,0],sign=1,gv=null,sm=[0,0,0],val=0,pa=0,pb=0,got=0,last=0,learn=null;
+const hist=[],cv=$('cv'),cx=cv.getContext('2d'),hero=document.querySelector('.hero');
+const st=t=>{$('st').textContent=t};
+
+const m=document.querySelector('.meter');
+[.2,.4,.6].forEach(v=>[1,-1].forEach(s=>{const b=document.createElement('b');b.style.top=(50-s*v/.8*50)+'%';b.textContent=v.toFixed(1);m.append(b)}));
+
+function onMotion(e){
+  const ag=e.accelerationIncludingGravity,a=e.acceleration,hasA=a&&a.x!=null,hasG=ag&&ag.x!=null;
+  if(!hasA&&!hasG)return;
+  const t=performance.now(),dt=Math.min(.1,(t-last)/1000||.016);last=t;
+  let lin;
+  if(hasG){
+    const x=[ag.x,ag.y,ag.z],k=1-Math.exp(-dt/4);
+    gv=gv?gv.map((g,i)=>g+k*(x[i]-g)):x;
+    lin=hasA?[a.x,a.y,a.z]:x.map((q,i)=>q-gv[i]);
+  }else lin=[a.x,a.y,a.z];
+  if(!got){got=1;st('計測中')}
+  let h=lin;
+  if(gv&&nrm(gv)>1){const n=nrm(gv),u=gv.map(q=>q/n),d=dot(lin,u);h=lin.map((q,i)=>q-d*u[i])}
+  const k2=1-Math.exp(-dt/.12);
+  sm=sm.map((q,i)=>q+k2*(h[i]-q));
+  if(learn){const mg=nrm(sm);if(mg>learn.m){learn.m=mg;learn.v=sm.slice()}}
+  const v=sign*dot(sm,f)/G;
+  val=Math.abs(v)<.02?0:v;
+}
+
+function draw(now){
+  const W=cv.width,H=cv.height,mid=H/2,S=mid/.8,cs=getComputedStyle(document.documentElement),d=devicePixelRatio||1;
+  cx.clearRect(0,0,W,H);
+  cx.strokeStyle=cs.getPropertyValue('--line').trim();cx.lineWidth=2*d;
+  cx.beginPath();cx.moveTo(0,mid);cx.lineTo(W,mid);cx.stroke();
+  if(hist.length<2)return;
+  const X=t=>W-(now-t)/HIST*W,Y=v=>mid-Math.max(-.8,Math.min(.8,v))*S,p=new Path2D();
+  p.moveTo(X(hist[0].t),mid);hist.forEach(h=>p.lineTo(X(h.t),Y(h.v)));p.lineTo(W,mid);p.closePath();
+  [['--acc',0,mid],['--brk',mid,H-mid]].forEach(([c,y,h])=>{
+    cx.save();cx.beginPath();cx.rect(0,y,W,h);cx.clip();
+    cx.fillStyle=cs.getPropertyValue(c).trim();cx.fill(p);cx.restore();
+  });
+}
+
+function tick(now){
+  if(learn&&now>learn.end){
+    if(learn.v&&learn.m>.7){f=learn.v.map(q=>q/learn.m);sign=1;st('前方向を設定しました')}
+    else st('加速が小さすぎます。もう一度お試しください');
+    learn=null;
+  }
+  if(val>pa)pa=val;if(-val>pb)pb=-val;
+  hist.push({t:now,v:val});while(hist[0].t<now-HIST)hist.shift();
+  $('up').style.height=Math.min(1,Math.max(val,0)/.8)*50+'%';
+  $('dn').style.height=Math.min(1,Math.max(-val,0)/.8)*50+'%';
+  $('num').textContent=Math.abs(val).toFixed(2);
+  $('ms').textContent=(Math.abs(val)*G).toFixed(1)+' m/s²';
+  $('pa').textContent=pa.toFixed(2);$('pb').textContent=pb.toFixed(2);
+  hero.dataset.s=val>.03?'a':val<-.03?'b':'n';
+  $('lab').textContent=val>.03?'アクセル（加速）':val<-.03?'ブレーキ（減速）':'一定／停止';
+  draw(now);requestAnimationFrame(tick);
+}
+
+function fit(){const d=devicePixelRatio||1;cv.width=cv.clientWidth*d;cv.height=cv.clientHeight*d}
+addEventListener('resize',fit);fit();requestAnimationFrame(tick);
+
+$('start').onclick=async()=>{
+  try{
+    if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission&&await DeviceMotionEvent.requestPermission()!=='granted'){st('センサーの使用が許可されていません');return}
+  }catch(e){st('センサーの許可に失敗しました');return}
+  addEventListener('devicemotion',onMotion);
+  st('センサー待機中…');
+  try{await navigator.wakeLock.request('screen')}catch(e){}
+  setTimeout(()=>{if(!got){st('センサーを検出できません。デモ用スライダーで試せます');$('demo').hidden=false}},2000);
+};
+$('cal').onclick=()=>{learn={end:performance.now()+6000,m:0,v:null};st('学習中：前方向へ加速してください（6秒）')};
+$('flip').onclick=()=>{sign=-sign;st('向きを反転しました')};
+$('rst').onclick=()=>{pa=pb=0};
+$('demo').oninput=e=>{val=+e.target.value/100};
+</script>
+</body>
+</html>

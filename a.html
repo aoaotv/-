@@ -38,6 +38,10 @@ button{font:inherit;font-size:15px;padding:10px 14px;border-radius:8px;border:1p
 button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
 button.p{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 input[type=range]{width:100%}
+.turn{display:flex;gap:20px;align-items:center;padding:16px 0;border-bottom:1px solid var(--line)}
+#gc{width:160px;height:160px;flex:none;border:0}
+#tl{font-size:22px;font-weight:700}
+#tn{font-size:44px;line-height:1.2;font-weight:800}
 .hint{font-size:13px;color:var(--mut);margin:8px 0}
 </style>
 </head>
@@ -52,21 +56,33 @@ input[type=range]{width:100%}
     <div class="pk">最大加速 <b id="pa">0.00</b> G<br>最大減速 <b id="pb">0.00</b> G</div>
   </div>
 </section>
+<section class="turn">
+  <canvas id="gc" aria-label="前後と左右のGの位置"></canvas>
+  <div>
+    <div id="tl">直進</div>
+    <div class="big"><span id="tn">0.00</span><small>G</small></div>
+    <div class="pk">最大 左 <b id="pl">0.00</b> G<br>最大 右 <b id="pr">0.00</b> G</div>
+  </div>
+</section>
 <canvas id="cv" aria-label="直近12秒の前後Gの推移"></canvas>
 <div class="row">
   <button class="p" id="start">スタート</button>
   <button id="cal">前方向を学習</button>
   <button id="flip">向きを反転</button>
+  <button id="flip2">左右を反転</button>
   <button id="rst">ピークをリセット</button>
 </div>
 <input type="range" id="demo" min="-80" max="80" value="0" hidden aria-label="デモ用：加速・減速">
-<p class="hint">使い方：「スタート」でセンサーを許可し、スマホを車にしっかり固定します。「前方向を学習」を押して6秒以内に前へ加速すると向きが決まります。逆に表示されたら「向きを反転」。操作は必ず停車中に行ってください。</p>
+<input type="range" id="demo2" min="-80" max="80" value="0" hidden aria-label="デモ用：左右">
+<p class="hint">使い方：「スタート」でセンサーを許可し、スマホを車にしっかり固定します。「前方向を学習」を押して6秒以内に前へ加速すると向きが決まります。逆に表示されたら「向きを反転」、曲がりの左右が逆なら「左右を反転」。操作は必ず停車中に行ってください。</p>
 <p class="hint">表示は加速度センサーから推定した前後Gで、ペダル操作そのものではありません（エンジンブレーキなども減速として表示されます）。</p>
 </main>
 <script>
 const $=id=>document.getElementById(id),G=9.80665,HIST=12000;
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],nrm=a=>Math.hypot(a[0],a[1],a[2]);
-let f=[0,1,0],sign=1,gv=null,sm=[0,0,0],val=0,pa=0,pb=0,got=0,last=0,learn=null;
+let f=[0,1,0],sign=1,gv=null,sm=[0,0,0],val=0,pa=0,pb=0,got=0,last=0,learn=null,lat=0,lsign=1,pl=0,pr=0,upv=null;
+const crs=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const trail=[],gc=$('gc'),gx=gc.getContext('2d');
 const hist=[],cv=$('cv'),cx=cv.getContext('2d'),hero=document.querySelector('.hero');
 const st=t=>{$('st').textContent=t};
 
@@ -91,6 +107,29 @@ function onMotion(e){
   if(learn){const mg=nrm(sm);if(mg>learn.m){learn.m=mg;learn.v=sm.slice()}}
   const v=sign*dot(sm,f)/G;
   val=Math.abs(v)<.02?0:v;
+  // 左右: 右方向 = 前方向 × 上方向。上方向の符号はdeviceorientationで判定
+  const r=crs(f,gv||[0,0,1]),rn=nrm(r),s=gv&&upv&&dot(gv,upv)<0?-1:1;
+  const l=rn>1?lsign*sign*s*dot(sm,r)/rn/G:0;
+  lat=Math.abs(l)<.02?0:l;
+}
+
+function onOri(e){
+  if(e.beta==null)return;
+  const b=e.beta*Math.PI/180,g=e.gamma*Math.PI/180;
+  upv=[-Math.cos(b)*Math.sin(g),Math.sin(b),Math.cos(b)*Math.cos(g)];
+}
+
+function drawG(cs){
+  const d=devicePixelRatio||1,W=gc.width,c=W/2,R=c-6*d,k=R/.8,col=n=>cs.getPropertyValue(n).trim();
+  const P=(a,b)=>[c+Math.max(-.8,Math.min(.8,a))*k,c-Math.max(-.8,Math.min(.8,b))*k];
+  gx.clearRect(0,0,W,W);gx.strokeStyle=col('--line');gx.lineWidth=2*d;
+  [.4,.8].forEach(v=>{gx.beginPath();gx.arc(c,c,v*k,0,7);gx.stroke()});
+  gx.beginPath();gx.moveTo(c,c-R);gx.lineTo(c,c+R);gx.moveTo(c-R,c);gx.lineTo(c+R,c);gx.stroke();
+  trail.push([lat,val]);if(trail.length>50)trail.shift();
+  gx.fillStyle=col('--mut');
+  trail.forEach(([a,b],i)=>{const [x,y]=P(a,b);gx.globalAlpha=i/trail.length*.5;gx.beginPath();gx.arc(x,y,4*d,0,7);gx.fill()});
+  gx.globalAlpha=1;gx.fillStyle=col(val>.03?'--acc':val<-.03?'--brk':'--fg');
+  const [x,y]=P(lat,val);gx.beginPath();gx.arc(x,y,9*d,0,7);gx.fill();
 }
 
 function draw(now){
@@ -114,18 +153,22 @@ function tick(now){
     learn=null;
   }
   if(val>pa)pa=val;if(-val>pb)pb=-val;
+  if(lat>pr)pr=lat;if(-lat>pl)pl=-lat;
   hist.push({t:now,v:val});while(hist[0].t<now-HIST)hist.shift();
   $('up').style.height=Math.min(1,Math.max(val,0)/.8)*50+'%';
   $('dn').style.height=Math.min(1,Math.max(-val,0)/.8)*50+'%';
   $('num').textContent=Math.abs(val).toFixed(2);
   $('ms').textContent=(Math.abs(val)*G).toFixed(1)+' m/s²';
   $('pa').textContent=pa.toFixed(2);$('pb').textContent=pb.toFixed(2);
+  $('pl').textContent=pl.toFixed(2);$('pr').textContent=pr.toFixed(2);
+  $('tn').textContent=Math.abs(lat).toFixed(2);
+  $('tl').textContent=lat>.03?'右カーブ':lat<-.03?'左カーブ':'直進';
   hero.dataset.s=val>.03?'a':val<-.03?'b':'n';
   $('lab').textContent=val>.03?'アクセル（加速）':val<-.03?'ブレーキ（減速）':'一定／停止';
-  draw(now);requestAnimationFrame(tick);
+  draw(now);drawG(getComputedStyle(document.documentElement));requestAnimationFrame(tick);
 }
 
-function fit(){const d=devicePixelRatio||1;cv.width=cv.clientWidth*d;cv.height=cv.clientHeight*d}
+function fit(){const d=devicePixelRatio||1;cv.width=cv.clientWidth*d;cv.height=cv.clientHeight*d;gc.width=gc.clientWidth*d;gc.height=gc.clientHeight*d}
 addEventListener('resize',fit);fit();requestAnimationFrame(tick);
 
 $('start').onclick=async()=>{
@@ -134,13 +177,17 @@ $('start').onclick=async()=>{
   }catch(e){st('センサーの許可に失敗しました');return}
   addEventListener('devicemotion',onMotion);
   st('センサー待機中…');
+  try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)await DeviceOrientationEvent.requestPermission()}catch(e){}
+  addEventListener('deviceorientation',onOri);
   try{await navigator.wakeLock.request('screen')}catch(e){}
-  setTimeout(()=>{if(!got){st('センサーを検出できません。デモ用スライダーで試せます');$('demo').hidden=false}},2000);
+  setTimeout(()=>{if(!got){st('センサーを検出できません。デモ用スライダーで試せます');$('demo').hidden=$('demo2').hidden=false}},2000);
 };
 $('cal').onclick=()=>{learn={end:performance.now()+6000,m:0,v:null};st('学習中：前方向へ加速してください（6秒）')};
 $('flip').onclick=()=>{sign=-sign;st('向きを反転しました')};
-$('rst').onclick=()=>{pa=pb=0};
+$('rst').onclick=()=>{pa=pb=pl=pr=0};
+$('flip2').onclick=()=>{lsign=-lsign;st('左右を反転しました')};
 $('demo').oninput=e=>{val=+e.target.value/100};
+$('demo2').oninput=e=>{lat=+e.target.value/100};
 </script>
 </body>
 </html>
